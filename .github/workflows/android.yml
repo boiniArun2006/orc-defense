@@ -35,13 +35,19 @@ jobs:
             -storepass android -dname "CN=Android Debug,O=Android,C=US" \
             -validity 9999 -deststoretype pkcs12
 
-      - name: Point Godot at the debug keystore
+      - name: Point Godot at keystore, Android SDK and Java
         run: |
           mkdir -p ~/.config/godot
+          JAVA_DIR="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(which java)")")")}"
+          SDK_DIR="${ANDROID_HOME:-/usr/lib/android-sdk}"
+          echo "Java: $JAVA_DIR"
+          echo "SDK:  $SDK_DIR"
           {
             echo '[gd_resource type="EditorSettings" format=3]'
             echo ''
             echo '[resource]'
+            echo "export/android/android_sdk_path = \"$SDK_DIR\""
+            echo "export/android/java_sdk_path = \"$JAVA_DIR\""
             echo "export/android/debug_keystore = \"$(pwd)/debug.keystore\""
             echo 'export/android/debug_keystore_user = "androiddebugkey"'
             echo 'export/android/debug_keystore_pass = "android"'
