@@ -20,6 +20,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Ensure UI font exists (download if missing)
+        run: |
+          mkdir -p assets/fonts
+          if [ ! -s assets/fonts/ui.ttf ]; then
+            echo "Font missing — downloading Baloo 2..."
+            curl -sSL "https://github.com/google/fonts/raw/main/ofl/baloo2/Baloo2%5Bwght%5D.ttf" -o assets/fonts/ui.ttf
+          fi
+          ls -la assets/fonts/ui.ttf
+          # sanity: must be a real TTF, not an HTML error page
+          if ! file assets/fonts/ui.ttf | grep -qiE "TrueType|OpenType|font"; then
+            echo "Downloaded font is invalid"; file assets/fonts/ui.ttf; exit 1
+          fi
+
       - name: Move export templates into place
         run: |
           mkdir -p ~/.local/share/godot/export_templates/

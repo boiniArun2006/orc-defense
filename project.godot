@@ -5,19 +5,25 @@ config_version=5
 [application]
 
 config/name="Orc Defense"
-run/main_scene="res://scenes/Main.tscn"
+run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
 config/icon="res://icon.svg"
 
+[autoload]
+
+Game="*res://scripts/Game.gd"
+
 [display]
 
-window/size/viewport_width=720
-window/size/viewport_height=1280
+window/size/viewport_width=1280
+window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation="portrait"
+window/handheld/orientation="landscape"
 
-[input]
+[gui]
+
+theme/custom="res://theme.tres"
 
 [rendering]
 
