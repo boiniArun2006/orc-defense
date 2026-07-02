@@ -1,0 +1,10 @@
+# Godot 4
+.godot/
+/android/
+export.cfg
+build/
+*.tmp
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
