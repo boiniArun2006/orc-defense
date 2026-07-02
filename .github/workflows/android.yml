@@ -25,12 +25,20 @@ jobs:
           mkdir -p assets/fonts
           if [ ! -s assets/fonts/ui.ttf ]; then
             echo "Font missing — downloading Baloo 2..."
-            curl -sSL "https://github.com/google/fonts/raw/main/ofl/baloo2/Baloo2%5Bwght%5D.ttf" -o assets/fonts/ui.ttf
+            URL="https://github.com/google/fonts/raw/main/ofl/baloo2/Baloo2%5Bwght%5D.ttf"
+            if command -v wget >/dev/null 2>&1; then
+              wget -q -O assets/fonts/ui.ttf "$URL"
+            elif command -v curl >/dev/null 2>&1; then
+              curl -sSL "$URL" -o assets/fonts/ui.ttf
+            else
+              echo "Neither wget nor curl available"; exit 1
+            fi
           fi
-          ls -la assets/fonts/ui.ttf
-          # sanity: must be a real TTF, not an HTML error page
-          if ! file assets/fonts/ui.ttf | grep -qiE "TrueType|OpenType|font"; then
-            echo "Downloaded font is invalid"; file assets/fonts/ui.ttf; exit 1
+          SZ=$(stat -c%s assets/fonts/ui.ttf 2>/dev/null || echo 0)
+          echo "font size: $SZ bytes"
+          # a real TTF here is ~300KB; anything tiny is an error page
+          if [ "$SZ" -lt 20000 ]; then
+            echo "Downloaded font looks invalid (too small)"; head -c 200 assets/fonts/ui.ttf; exit 1
           fi
 
       - name: Move export templates into place
