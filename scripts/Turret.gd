@@ -21,6 +21,8 @@ var arc_half := deg_to_rad(60)   # half of the firing arc; full arc <= 120 deg
 var auto_fire := true            # sniper may set this false (tap-fire)
 
 var _cooldown := 0.0
+var _muzzle := 0.0               # muzzle-flash timer
+var _spr: Sprite2D               # rotates to aim_angle (barrel sprite points up)
 
 
 func setup(t_id: String) -> void:
@@ -32,12 +34,24 @@ func setup(t_id: String) -> void:
 	bullet_speed = def["bullet_speed"]
 	kind = def["kind"]
 	blast_radius = def["blast_radius"]
+	_spr = Sprite2D.new()
+	_spr.texture = Assets.turret_tex(type_id)
+	_spr.scale = Vector2(0.5, 0.5)          # 64px art -> ~32px footprint
+	# Kenney turret barrels point UP; rotate so "up" aligns with aim_angle.
+	_spr.rotation = aim_angle + PI / 2.0
+	add_child(_spr)
 	queue_redraw()
 
 
 func _process(delta: float) -> void:
 	if _cooldown > 0.0:
 		_cooldown -= delta
+	if _muzzle > 0.0:
+		_muzzle -= delta
+		queue_redraw()
+	# keep the barrel sprite aligned with the aim (gun barrels point up in source art)
+	if _spr and kind == "gun":
+		_spr.rotation = aim_angle + PI / 2.0
 	# Bombers and auto-fire guns acquire on their own. Tap-fire guns wait for tap.
 	if kind == "gun" and not auto_fire:
 		return
@@ -96,22 +110,24 @@ func _fire_at(target: Node2D) -> void:
 		b.speed = bullet_speed
 		battle.world.add_child(b)
 	_cooldown = fire_rate
+	_muzzle = 0.06
+	# bomber has no aim; point its launcher at the target for a beat
+	if kind == "bomb" and _spr:
+		_spr.rotation = (target.position - position).angle() + PI / 2.0
 	queue_redraw()
 
 
 func _draw() -> void:
+	# range / arc overlay is drawn under the sprite; the sprite child draws the body
 	var col: Color = def.get("color", Color(0.6, 0.6, 0.65))
 	if kind == "gun":
 		_draw_arc_region(col)
 	else:
 		draw_arc(Vector2.ZERO, range_px, 0.0, TAU, 44, Color(1, 1, 1, 0.06), 1.5)
-	# body
-	draw_rect(Rect2(Vector2(-15, -15), Vector2(30, 30)), col)
-	draw_rect(Rect2(Vector2(-15, -15), Vector2(30, 30)), Color(1, 1, 1, 0.55), false, 2.0)
-	# barrel pointing at aim_angle (guns only)
-	if kind == "gun":
-		draw_line(Vector2.ZERO, Vector2(30, 0).rotated(aim_angle), Color(0.95, 0.95, 1.0), 5.0)
-	draw_circle(Vector2.ZERO, 6.0, Color(0.2, 0.2, 0.25))
+	# muzzle flash at the barrel tip when recently fired
+	if _muzzle > 0.0:
+		var tip := Vector2(26, 0).rotated(aim_angle) if kind == "gun" else Vector2.ZERO
+		draw_circle(tip, 7.0, Color(1.0, 0.85, 0.3, 0.9))
 
 
 func _draw_arc_region(col: Color) -> void:

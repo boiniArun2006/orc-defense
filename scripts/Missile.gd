@@ -14,12 +14,18 @@ var _start := Vector2.ZERO
 var _total := 0.0
 var _travelled := 0.0
 var _arc_height := 90.0
+var _spr: Sprite2D
+var _shadow_y := 0.0
 
 
 func _ready() -> void:
 	_start = position
 	_total = max(1.0, _start.distance_to(target_pos))
 	_arc_height = clamp(_total * 0.35, 60.0, 160.0)
+	_spr = Sprite2D.new()
+	_spr.texture = Assets.tex("rocket")
+	_spr.scale = Vector2(0.5, 0.5)
+	add_child(_spr)
 
 
 func _process(delta: float) -> void:
@@ -29,6 +35,12 @@ func _process(delta: float) -> void:
 	# parabola: peaks at t=0.5, zero at ends — subtract from Y to lift the sprite
 	var lift := _arc_height * (4.0 * t * (1.0 - t))
 	position = ground - Vector2(0, lift)
+	_shadow_y = lift          # how far above its shadow the rocket currently is
+	# point the rocket along its travel+lift velocity (rocket art points up)
+	var vel := Vector2(target_pos.x - _start.x, (target_pos.y - _start.y) - _arc_height * (4.0 - 8.0 * t))
+	if vel.length() > 0.01:
+		_spr.rotation = vel.angle() + PI / 2.0
+	queue_redraw()
 	if t >= 1.0:
 		_explode(ground)
 
@@ -45,7 +57,6 @@ func _explode(at: Vector2) -> void:
 
 
 func _draw() -> void:
-	# shadow on the ground + the bomb itself
-	draw_circle(Vector2(0, 6), 5.0, Color(0, 0, 0, 0.25))
-	draw_circle(Vector2.ZERO, 6.0, Color(0.25, 0.25, 0.3))
-	draw_circle(Vector2(0, -3), 3.0, Color(0.95, 0.6, 0.2))
+	# ground shadow sits below the lifted rocket for a sense of height
+	draw_circle(Vector2(0, _shadow_y), 5.0, Color(0, 0, 0, 0.22))
+

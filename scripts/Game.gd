@@ -23,6 +23,10 @@ signal changed                         # emitted whenever state mutates (UI refr
 
 func _ready() -> void:
 	load_game()
+	# first-run gift so the opening battle isn't an instant loss with no turrets
+	if not FileAccess.file_exists(SAVE_PATH) and inventory.is_empty():
+		inventory = {"rifle": 3}
+		save_game()
 
 
 # ---------- XP / character level ----------

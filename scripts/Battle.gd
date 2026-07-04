@@ -6,6 +6,12 @@ extends Node2D
 # ---- Gate / level tuning ----
 const GATE_HP_MAX := 50
 
+# ---- Horde tuning ----
+const BASE_WAVE_SIZE := 50        # orcs in the first wave of level 1
+const WAVE_GROWTH := 1.8          # each wave ~1.8x the previous (feels like doubling)
+const LEVEL_SIZE_BONUS := 0.15    # +15% base horde per game level
+const MAX_ALIVE := 200            # concurrency cap: pause spawns above this (perf)
+
 # Placement flow states
 const MODE_IDLE := 0
 const MODE_PREVIEW := 1
@@ -69,11 +75,16 @@ func _ready() -> void:
 	_configure_level()
 	for k in Game.inventory.keys():
 		deploy_left[k] = int(Game.inventory[k])
+	_build_path()
+	# static textured map (drawn once, sits behind everything)
+	var ground := GroundLayer.new()
+	ground.battle = self
+	add_child(ground)
+	# per-frame overlay layer that also parents the units
 	world = BattleWorld.new()
 	world.battle = self
 	add_child(world)
 	_setup_camera()
-	_build_path()
 	_build_ui()
 	set_process_unhandled_input(true)
 
@@ -109,11 +120,13 @@ func _process(delta: float) -> void:
 	if not finished:
 		if wave_active:
 			if spawned < to_spawn:
-				spawn_timer -= delta
-				if spawn_timer <= 0.0:
-					_spawn_one()
-					spawned += 1
-					spawn_timer = spawn_interval
+				# concurrency cap: hold spawns while the field is full (protects FPS)
+				if enemies.size() < MAX_ALIVE:
+					spawn_timer -= delta
+					if spawn_timer <= 0.0:
+						_spawn_one()
+						spawned += 1
+						spawn_timer = spawn_interval
 			elif enemies.is_empty():
 				_end_wave()
 		else:
@@ -121,15 +134,21 @@ func _process(delta: float) -> void:
 			if between_timer <= 0.0:
 				_start_wave()
 	_update_top()
-	world.queue_redraw()
+	# only the gate + placement ghost need per-frame redraw; keep it to placement mode
+	if mode != MODE_IDLE:
+		world.queue_redraw()
 
 
 func _start_wave() -> void:
 	wave += 1
 	wave_active = true
 	spawned = 0
-	to_spawn = 4 + wave * 2 + level
-	spawn_interval = max(0.3, 0.9 - level * 0.02)
+	# Geometric growth so each wave feels ~2x the last, plus a per-level base bump.
+	# e.g. L1: 50, 90, 162...  Higher levels start larger.
+	var level_base: float = BASE_WAVE_SIZE * (1.0 + LEVEL_SIZE_BONUS * (level - 1))
+	to_spawn = int(round(level_base * pow(WAVE_GROWTH, wave - 1)))
+	# fast trickle so many are on screen at once (clamped, subject to MAX_ALIVE gate)
+	spawn_interval = max(0.05, 0.22 - level * 0.008)
 	spawn_timer = 0.0
 
 
@@ -137,7 +156,7 @@ func _end_wave() -> void:
 	wave_active = false
 	between_timer = 4.0
 	Game.add_xp(6 + level)
-	Game.add_coins(10 + level * 2)
+	Game.add_coins(20 + level * 4)
 	if wave >= waves_total:
 		_victory()
 
@@ -149,15 +168,16 @@ func _spawn_one() -> void:
 	if is_last_wave_boss:
 		e.is_boss = true
 		e.speed = 40.0 + level
-		e.max_hp = 600.0 + level * 120.0
-		e.coin_reward = 60 + level * 5
+		e.max_hp = 900.0 + level * 160.0
+		e.coin_reward = 80 + level * 6
 		e.xp_reward = 40 + level * 3
 		e.gate_damage = 10
 	else:
-		e.speed = 58.0 + level * 2.0
-		e.max_hp = 34.0 + level * 12.0 + wave * 6.0
-		e.coin_reward = 3
-		e.xp_reward = 2
+		# lots of weaker orcs — die to sustained fire, not one shot
+		e.speed = 55.0 + level * 2.0
+		e.max_hp = 18.0 + level * 6.0 + wave * 3.0
+		e.coin_reward = 2
+		e.xp_reward = 1
 		e.gate_damage = 1
 	e.hp = e.max_hp
 	e.died.connect(_on_enemy_died)
@@ -395,6 +415,8 @@ func _sync_placement_ui() -> void:
 	confirm_box.visible = mode != MODE_IDLE
 	aim_panel.visible = mode == MODE_AIM
 	auto_check.visible = mode == MODE_AIM and pending_type == "sniper"
+	if world:
+		world.queue_redraw()   # refresh/clear the gate+ghost overlay on any transition
 
 
 func _refresh_deploy_bar() -> void:
@@ -406,7 +428,11 @@ func _refresh_deploy_bar() -> void:
 			continue
 		var b := Button.new()
 		b.text = "%s\nx%d" % [TurretData.get_def(type_id)["name"], n]
-		b.custom_minimum_size = Vector2(150, 76)
+		b.custom_minimum_size = Vector2(120, 84)
+		b.icon = Assets.turret_tex(type_id)
+		b.expand_icon = true
+		b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		b.add_theme_font_size_override("font_size", 20)
 		b.pressed.connect(_select_type.bind(type_id))
 		deploy_bar.add_child(b)
 
@@ -427,7 +453,11 @@ func _update_top() -> void:
 	var status := "Wave %d/%d" % [wave, waves_total]
 	if not wave_active:
 		status = "Next wave in %.0f" % ceil(between_timer)
-	var boss_tag := "  ⚔ BOSS LEVEL" if boss_wave else ""
+	else:
+		# orcs still to come this wave + those currently alive
+		var remaining: int = (to_spawn - spawned) + enemies.size()
+		status = "Wave %d/%d   Orcs left: %d" % [wave, waves_total, remaining]
+	var boss_tag := "  BOSS LEVEL" if boss_wave else ""
 	lbl_top.text = "Level %d%s   Gate %d/%d   Coins %d   %s" % [
 		level, boss_tag, gate_hp, GATE_HP_MAX, Game.coins, status]
 

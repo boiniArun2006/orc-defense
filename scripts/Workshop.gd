@@ -55,6 +55,12 @@ func _make_row(type_id: String) -> Control:
 	hb.add_theme_constant_override("separation", 20)
 	row.add_child(hb)
 
+	var icon := TextureRect.new()
+	icon.texture = Assets.turret_tex(type_id)
+	icon.custom_minimum_size = Vector2(56, 56)
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	hb.add_child(icon)
+
 	var name_l := Label.new()
 	name_l.add_theme_font_size_override("font_size", 30)
 	name_l.custom_minimum_size = Vector2(260, 0)
