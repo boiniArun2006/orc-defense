@@ -11,19 +11,22 @@ base — place towers to stop them.
 3. Download `orc-defense.apk`, open it on your phone, allow "install from
    unknown sources", install, and play.
 
-## Phase 1 (current)
+## Phase 6 (current)
 
-- One snaking map, waves of orcs
-- Tap empty ground to place a tower (costs gold)
-- Towers auto-shoot the nearest orc; kills drop gold
-- Base has lives; lose them all = game over (tap to restart)
-- Art is placeholder shapes — real art comes in a later phase.
+- 24+ generated maps across 3 biomes with ponds, groves, ground detail and depth
+- Two-part turrets (stone base + gun that turns to track its target)
+- Enemy variants: runners (fast/frail) and armored brutes force real tactics
+- AIR STRIKE: drag a line and planes fly in to carpet-bomb the corridor
+- Hard-earned progression: turret unlocks spread to char levels 4/8/13/18,
+  lean coin economy — losing and replanning is part of the game
+- Proper loading screens with tactics tips, themed HUD and menus
 
 ## Project layout
 
-- `scenes/Main.tscn` — entry scene
-- `scripts/Main.gd` — game loop, waves, economy, HUD, input
-- `scripts/Enemy.gd` / `Tower.gd` / `Bullet.gd` — the units
+- `scenes/Loading.tscn` — entry scene (boot + level loading screen)
+- `scripts/Battle.gd` — game loop, waves, economy, HUD, input
+- `scripts/Enemy.gd` / `Turret.gd` / `StrikePlane.gd` / `Bullet.gd` — the units
+- `scripts/MapData.gd` / `GroundLayer.gd` — map generation and rendering
 - `.github/workflows/android.yml` — builds the APK automatically
 
 ## License

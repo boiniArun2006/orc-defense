@@ -2,7 +2,8 @@ class_name Assets
 extends RefCounted
 ## Central texture loader with a cache, so every unit shares one Texture2D per
 ## file instead of reloading. Pixel-art sprites are sourced from Kenney (CC0):
-##   - Tower Defense (Top-Down): turrets, projectiles, flames, ground
+##   - Tower Defense (Top-Down): tower bases + guns, plane, projectiles, flames,
+##     ground tiles, decorations
 ##   - Tiny Dungeon: orc / boss creatures
 ## See assets/CREDITS.md.
 
@@ -11,17 +12,27 @@ static var _cache := {}
 const SPRITES := {
 	"orc": "res://assets/sprites/orc.png",
 	"orc_boss": "res://assets/sprites/orc_boss.png",
-	"rifle": "res://assets/sprites/turret_rifle.png",
-	"mgun": "res://assets/sprites/turret_mgun.png",
-	"smg": "res://assets/sprites/turret_smg.png",
-	"sniper": "res://assets/sprites/turret_sniper.png",
-	"bomber": "res://assets/sprites/turret_bomber.png",
+	# two-part turrets: a static base + a gun that rotates to track targets
+	"base_a": "res://assets/sprites/base_a.png",
+	"base_b": "res://assets/sprites/base_b.png",
+	"base_c": "res://assets/sprites/base_c.png",
+	"gun_rifle": "res://assets/sprites/gun_rifle.png",
+	"gun_mgun": "res://assets/sprites/gun_mgun.png",
+	"gun_smg": "res://assets/sprites/gun_smg.png",
+	"gun_sniper": "res://assets/sprites/gun_sniper.png",
+	"gun_bomber": "res://assets/sprites/gun_bomber.png",
+	# air strike
+	"plane": "res://assets/sprites/plane.png",
+	"plane_shadow": "res://assets/sprites/plane_shadow.png",
+	"crater": "res://assets/sprites/crater.png",
+	# projectiles / fx
 	"bullet": "res://assets/sprites/bullet.png",
 	"rocket": "res://assets/sprites/rocket.png",
 	"flame_1": "res://assets/sprites/flame_1.png",
 	"flame_2": "res://assets/sprites/flame_2.png",
 	"flame_3": "res://assets/sprites/flame_3.png",
 	"flame_4": "res://assets/sprites/flame_4.png",
+	# ground / decoration
 	"grass": "res://assets/sprites/grass.png",
 	"dirt": "res://assets/sprites/dirt.png",
 	"sand": "res://assets/sprites/sand.png",
@@ -30,10 +41,22 @@ const SPRITES := {
 	"path_sand": "res://assets/sprites/path_sand.png",
 	"path_stone": "res://assets/sprites/path_stone.png",
 	"bush": "res://assets/sprites/bush.png",
+	"bush2": "res://assets/sprites/bush2.png",
 	"tree": "res://assets/sprites/tree.png",
+	"tree_big": "res://assets/sprites/tree_big.png",
+	"plant": "res://assets/sprites/plant.png",
 	"rock": "res://assets/sprites/rock.png",
 	"rock2": "res://assets/sprites/rock2.png",
+	"rock3": "res://assets/sprites/rock3.png",
 	"gate": "res://assets/sprites/gate.png",
+	# UI
+	"coin": "res://assets/sprites/coin.png",
+	# legacy single-sprite turret icons (kept for compatibility)
+	"rifle": "res://assets/sprites/turret_rifle.png",
+	"mgun": "res://assets/sprites/turret_mgun.png",
+	"smg": "res://assets/sprites/turret_smg.png",
+	"sniper": "res://assets/sprites/turret_sniper.png",
+	"bomber": "res://assets/sprites/turret_bomber.png",
 }
 
 
@@ -55,4 +78,6 @@ static func tex(key: String) -> Texture2D:
 
 
 static func turret_tex(type_id: String) -> Texture2D:
-	return tex(type_id)
+	# icon for UI = the gun sprite of the new two-part turret art
+	var def: Dictionary = TurretData.get_def(type_id)
+	return tex(def.get("gun", type_id))

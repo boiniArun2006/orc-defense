@@ -7,8 +7,9 @@ extends Node
 const SAVE_PATH := "user://save.json"
 
 # XP needed to reach the NEXT character level, indexed by current level (1-based).
-# Level 1 needs 30 XP to hit level 2, etc. Beyond the list, scale up.
-const XP_CURVE := [0, 30, 70, 130, 210, 320, 460, 640]
+# Deliberately steep: new turret types (unlocked at char levels 4/8/13/18) must
+# feel earned over many battles, not showered on the player by level 5.
+const XP_CURVE := [0, 40, 100, 180, 290, 430, 600, 800, 1030, 1290, 1580, 1900]
 
 var coins := 60
 var xp := 0
@@ -22,6 +23,9 @@ var purchase_counts := {}              # type_id -> times bought (price growth)
 var music_on := true
 var sfx_on := true
 
+# where the Loading screen should take us next ("" -> MainMenu)
+var next_scene := ""
+
 signal changed                         # emitted whenever state mutates (UI refresh)
 
 
@@ -31,6 +35,12 @@ func _ready() -> void:
 	if not FileAccess.file_exists(SAVE_PATH) and inventory.is_empty():
 		inventory = {"rifle": 3}
 		save_game()
+
+
+## Route every scene change through the Loading screen for a proper game feel.
+func goto(scene_path: String) -> void:
+	next_scene = scene_path
+	get_tree().change_scene_to_file("res://scenes/Loading.tscn")
 
 
 func reset_progress() -> void:
@@ -47,7 +57,7 @@ func reset_progress() -> void:
 # ---------- XP / character level ----------
 func add_xp(amount: int) -> void:
 	xp += amount
-	# no artificial cap: past the curve, each level costs +220 XP more (see below)
+	# no artificial cap: past the curve, each level costs +450 XP more
 	while xp >= _xp_needed_total(char_level + 1):
 		char_level += 1
 	emit_changed()
@@ -57,7 +67,7 @@ func _xp_needed_total(level: int) -> int:
 	# Total cumulative XP required to be AT `level`.
 	var total := 0
 	for i in range(2, level + 1):
-		total += (XP_CURVE[i - 1] if i - 1 < XP_CURVE.size() else XP_CURVE[-1] + (i - XP_CURVE.size()) * 220)
+		total += (XP_CURVE[i - 1] if i - 1 < XP_CURVE.size() else XP_CURVE[-1] + (i - XP_CURVE.size()) * 450)
 	return total
 
 

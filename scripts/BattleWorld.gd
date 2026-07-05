@@ -1,7 +1,8 @@
 class_name BattleWorld
 extends Node2D
-## Per-frame overlay in the camera-transformed layer: the gate marker and the
-## turret placement/aim preview. The static map is drawn once by GroundLayer.
+## Per-frame overlay in the camera-transformed layer: the gate marker, the
+## turret placement/aim preview, and the air-strike corridor preview.
+## The static map is drawn once by GroundLayer.
 
 var battle: Node
 
@@ -12,6 +13,8 @@ func _draw() -> void:
 	_draw_gate(battle.gate_pos)
 	if battle.mode == battle.MODE_PREVIEW or battle.mode == battle.MODE_AIM:
 		_draw_ghost()
+	elif battle.mode == battle.MODE_STRIKE:
+		_draw_strike_preview()
 
 
 func _draw_gate(g: Vector2) -> void:
@@ -43,16 +46,18 @@ func _draw_ghost() -> void:
 	var gp: Vector2 = battle.ghost_pos
 	var col: Color = def.get("color", Color.WHITE)
 	var ok: bool = battle._placement_ok(gp)
-	var tint := Color(col.r, col.g, col.b, 0.5) if ok else Color(1, 0.3, 0.3, 0.5)
+	var tint := Color(col.r, col.g, col.b, 0.55) if ok else Color(1, 0.3, 0.3, 0.55)
 	# range ring
 	draw_arc(gp, def["range"], 0.0, TAU, 44, Color(1, 1, 1, 0.15), 1.5)
-	# ghost turret sprite
-	var t: Texture2D = Assets.turret_tex(battle.pending_type)
-	if t != null:
-		var sz := Vector2(t.get_width(), t.get_height()) * 0.5
-		draw_texture_rect(t, Rect2(gp - sz * 0.5, sz), false, tint)
-	else:
-		draw_rect(Rect2(gp - Vector2(15, 15), Vector2(30, 30)), tint)
+	# ghost turret: base + gun composed like the real thing
+	var base_t: Texture2D = Assets.tex(def.get("base", ""))
+	var gun_t: Texture2D = Assets.tex(def.get("gun", ""))
+	if base_t != null:
+		var bs := Vector2(base_t.get_width(), base_t.get_height()) * 0.72
+		draw_texture_rect(base_t, Rect2(gp - bs * 0.5, bs), false, tint)
+	if gun_t != null:
+		var gs := Vector2(gun_t.get_width(), gun_t.get_height()) * 0.62
+		draw_texture_rect(gun_t, Rect2(gp - gs * 0.5, gs), false, tint)
 	# aim arc preview (guns only, during AIM)
 	if battle.mode == battle.MODE_AIM and def["kind"] == "gun":
 		var a0: float = battle.aim_dir - battle.aim_half
@@ -63,3 +68,37 @@ func _draw_ghost() -> void:
 			poly.append(gp + Vector2(def["range"], 0).rotated(a))
 		draw_colored_polygon(poly, Color(col.r, col.g, col.b, 0.18))
 		draw_line(gp, gp + Vector2(def["range"], 0).rotated(battle.aim_dir), Color(1, 1, 0.5, 0.9), 4.0)
+
+
+func _draw_strike_preview() -> void:
+	if not battle.strike_dragging:
+		return
+	var a: Vector2 = battle.strike_from
+	var b: Vector2 = battle.strike_to
+	var d: float = a.distance_to(b)
+	if d < 4.0:
+		return
+	var dir: Vector2 = (b - a) / d
+	var perp: Vector2 = dir.orthogonal() * float(battle.STRIKE_RADIUS)
+	var ok: bool = d >= battle.STRIKE_MIN_DRAG
+	var col := Color(1.0, 0.35, 0.2, 0.22) if ok else Color(1, 1, 1, 0.12)
+	var edge := Color(1.0, 0.4, 0.2, 0.8) if ok else Color(1, 1, 1, 0.4)
+	# the bombing corridor
+	draw_colored_polygon(PackedVector2Array([a + perp, b + perp, b - perp, a - perp]), col)
+	draw_line(a + perp, b + perp, edge, 2.5)
+	draw_line(a - perp, b - perp, edge, 2.5)
+	# flight direction: dashed centerline + arrowhead
+	var dashes := int(d / 34.0)
+	for i in range(dashes):
+		var p0 := a + dir * (i * 34.0)
+		draw_line(p0, p0 + dir * 18.0, Color(1, 1, 1, 0.75), 3.0)
+	var tip := b + dir * 14.0
+	draw_colored_polygon(PackedVector2Array([
+		tip, b - dir * 12.0 + perp.normalized() * 14.0, b - dir * 12.0 - perp.normalized() * 14.0,
+	]), Color(1, 1, 1, 0.85))
+	# an incoming-plane silhouette at the start of the run
+	var shadow: Texture2D = Assets.tex("plane_shadow")
+	if shadow != null:
+		draw_set_transform(a - dir * 60.0, dir.angle() + PI / 2.0, Vector2(1.3, 1.3))
+		draw_texture(shadow, -shadow.get_size() * 0.5, Color(1, 1, 1, 0.8))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

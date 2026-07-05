@@ -1,30 +1,35 @@
 extends Node2D
 ## Battle screen. Runs one game level: finite waves (boss every 5th level), a gate
 ## with HP, deploy-from-inventory placement (select -> preview -> confirm -> aim),
-## pinch-to-zoom camera (visual only), and Victory/Defeat overlays.
+## enemy variants (runners/brutes) that force real tactics, a drag-to-target AIR
+## STRIKE with fly-by planes, pinch-to-zoom camera, and Victory/Defeat overlays.
 
 # ---- Gate / level tuning ----
 const GATE_HP_MAX := 100          # each leaked orc removes 5, so ~20 leaks = loss
 const ORC_GATE_DAMAGE := 5
 
 # ---- Horde tuning ----
-const BASE_WAVE_SIZE := 65        # orcs in the first wave of level 1
-const WAVE_GROWTH := 1.8          # each wave ~1.8x the previous (feels like doubling)
-const LEVEL_SIZE_BONUS := 0.15    # +15% base horde per game level
+# More waves per level with steady growth: mid-game levels are meant to be HARD.
+# The player is supposed to lose sometimes and come back with a better plan.
+const BASE_WAVE_SIZE := 40        # orcs in the first wave of level 1
+const WAVE_GROWTH := 1.45         # each wave ~1.45x the previous
+const LEVEL_SIZE_BONUS := 0.18    # +18% base horde per game level
 const MAX_ALIVE := 200            # concurrency cap: pause spawns above this (perf)
+const MAX_WAVES := 9
 
 # Placement flow states
 const MODE_IDLE := 0
 const MODE_PREVIEW := 1
 const MODE_AIM := 2
-const MODE_STRIKE := 3           # artillery targeting: next tap calls the barrage
+const MODE_STRIKE := 3           # air strike: drag a corridor, planes bomb it
 
-# ---- Artillery ability ----
-const STRIKE_COOLDOWN := 45.0
-const STRIKE_SHELLS := 6
-const STRIKE_SPREAD := 130.0
-const STRIKE_DAMAGE := 55.0
-const STRIKE_RADIUS := 85.0
+# ---- Air strike ability ----
+const STRIKE_COOLDOWN := 50.0
+const STRIKE_PLANES := 2
+const STRIKE_BOMBS := 5          # bombs per plane
+const STRIKE_DAMAGE := 50.0
+const STRIKE_RADIUS := 80.0
+const STRIKE_MIN_DRAG := 80.0    # shortest corridor the player may drag
 
 # Build-phase timing: generous window before wave 1 and between waves so the
 # player can actually place/aim turrets under no pressure.
@@ -36,7 +41,7 @@ const PLAY_RECT := Rect2(40, 40, 1200, 640)
 var level := 1
 var gate_hp := GATE_HP_MAX
 
-var waves_total := 2
+var waves_total := 3
 var wave := 0
 var wave_active := false
 var spawned := 0
@@ -63,6 +68,11 @@ var aim_dir := 0.0
 var aim_half := deg_to_rad(60)
 var pending_auto_fire := true
 
+# Air strike drag state (read by BattleWorld for the preview overlay)
+var strike_from := Vector2.ZERO
+var strike_to := Vector2.ZERO
+var strike_dragging := false
+
 # Camera / zoom
 var cam: Camera2D
 var _zoom := 1.0
@@ -73,13 +83,17 @@ var _active_touches := {}
 # World layer that the camera looks at (map + units live here)
 var world: Node2D
 var gore: GoreLayer              # corpses / blood / damage numbers (under units)
-var strike_cd := 0.0             # artillery cooldown remaining
+var strike_cd := 0.0             # air strike cooldown remaining
 var _shake := 0.0                # camera shake amplitude
 var sel_turret: Turret = null    # turret selected for in-battle upgrade
 
 # UI refs
 var ui: CanvasLayer
-var lbl_top: Label
+var lbl_level: Label
+var lbl_coins: Label
+var lbl_wave: Label
+var gate_bar: ProgressBar
+var msg_panel: PanelContainer
 var lbl_msg: Label
 var deploy_bar: HBoxContainer
 var confirm_box: HBoxContainer
@@ -107,6 +121,8 @@ func _ready() -> void:
 	ground.battle = self
 	ground.biome = map["biome"]
 	ground.decos = map["decos"]
+	ground.ponds = map.get("ponds", [])
+	ground.tufts = map.get("tufts", [])
 	add_child(ground)
 	# gore layer: corpses/blood/damage numbers, above ground, below units
 	gore = GoreLayer.new()
@@ -121,9 +137,8 @@ func _ready() -> void:
 
 
 func _configure_level() -> void:
-	# early levels: 2 waves; grows as you clear boss levels
-	var bosses_beaten := int(floor((level - 1) / 5.0))
-	waves_total = 2 + bosses_beaten
+	# waves scale with level: L1-2 -> 3 waves ... capped at MAX_WAVES
+	waves_total = min(MAX_WAVES, 3 + int(floor(level / 2.0)))
 	boss_wave = (level % 5 == 0)
 
 
@@ -154,7 +169,7 @@ func _process(delta: float) -> void:
 			between_timer -= delta
 			if between_timer <= 0.0:
 				_start_wave()
-	# artillery cooldown + camera shake decay
+	# air strike cooldown + camera shake decay
 	if strike_cd > 0.0:
 		strike_cd = max(0.0, strike_cd - delta)
 	if _shake > 0.01:
@@ -163,7 +178,7 @@ func _process(delta: float) -> void:
 	elif cam.offset != Vector2.ZERO:
 		cam.offset = Vector2.ZERO
 	_update_top()
-	# only the gate + placement ghost need per-frame redraw; keep it to placement mode
+	# only the gate + placement/strike overlays need per-frame redraw
 	if mode != MODE_IDLE:
 		world.queue_redraw()
 
@@ -172,8 +187,7 @@ func _start_wave() -> void:
 	wave += 1
 	wave_active = true
 	spawned = 0
-	# Geometric growth so each wave feels ~2x the last, plus a per-level base bump.
-	# e.g. L1: 50, 90, 162...  Higher levels start larger.
+	# Geometric growth so each wave feels bigger, plus a per-level base bump.
 	var level_base: float = BASE_WAVE_SIZE * (1.0 + LEVEL_SIZE_BONUS * (level - 1))
 	to_spawn = int(round(level_base * pow(WAVE_GROWTH, wave - 1)))
 	# fast trickle so many are on screen at once (clamped, subject to MAX_ALIVE gate)
@@ -185,8 +199,9 @@ func _start_wave() -> void:
 func _end_wave() -> void:
 	wave_active = false
 	between_timer = PREP_TIME
-	Game.add_xp(6 + level)
-	Game.add_coins(5 + level)              # trimmed wave bonus
+	# lean wave bonus: kills alone must not fund a turret spree
+	Game.add_xp(4 + level)
+	Game.add_coins(3 + int(level / 3.0))
 	Game.save_game()                       # don't lose battle earnings if OS kills the app
 	if wave >= waves_total:
 		_victory()
@@ -199,18 +214,38 @@ func _spawn_one() -> void:
 	if is_last_wave_boss:
 		e.is_boss = true
 		e.speed = 40.0 + level
-		e.max_hp = 900.0 + level * 160.0
-		e.coin_reward = 30 + level * 2
+		e.max_hp = 900.0 + level * 220.0
+		e.armor = 2.0 + level * 0.2
+		e.coin_reward = 25 + level * 2
 		e.xp_reward = 40 + level * 3
 		e.gate_damage = 25             # a boss breaching hurts a lot
 	else:
-		# lots of weaker orcs — die to sustained fire, not one shot.
-		# Meaty enough from level 1 that unguarded stretches WILL leak.
-		e.speed = 62.0 + level * 2.4
-		e.max_hp = 30.0 + level * 7.0 + wave * 4.0
-		e.coin_reward = 1              # earn turrets, don't drown in gold
-		e.xp_reward = 1
-		e.gate_damage = ORC_GATE_DAMAGE
+		# the standard horde: lots of weak orcs that die to sustained fire —
+		# spiced with variants that punish a one-note turret layout
+		var roll := randf()
+		var runner_chance: float = 0.0 if level < 3 else minf(0.28, 0.08 + 0.02 * level)
+		var brute_chance: float = 0.0 if level < 6 else minf(0.18, 0.03 + 0.012 * level)
+		if roll < brute_chance:
+			e.variant = "brute"
+			e.speed = 34.0 + level * 1.2
+			e.max_hp = (30.0 + 9.0 * level + 5.0 * wave) * 3.4
+			e.armor = 3.0 + level * 0.25
+			e.coin_reward = 3
+			e.xp_reward = 3
+			e.gate_damage = 10
+		elif roll < brute_chance + runner_chance:
+			e.variant = "runner"
+			e.speed = (60.0 + level * 3.0) * 1.8
+			e.max_hp = (30.0 + 9.0 * level + 5.0 * wave) * 0.5
+			e.coin_reward = 1
+			e.xp_reward = 1
+			e.gate_damage = ORC_GATE_DAMAGE
+		else:
+			e.speed = 60.0 + level * 3.0
+			e.max_hp = 26.0 + 9.0 * level + 5.0 * wave
+			e.coin_reward = 1              # earn turrets, don't drown in gold
+			e.xp_reward = 1
+			e.gate_damage = ORC_GATE_DAMAGE
 	e.hp = e.max_hp
 	e.battle = self
 	e.died.connect(_on_enemy_died.bind(e))
@@ -288,12 +323,12 @@ func _place_turret() -> void:
 	var t := Turret.new()
 	t.battle = self
 	t.position = ghost_pos
-	t.setup(pending_type)
 	if TurretData.get_def(pending_type)["kind"] == "gun":
 		t.aim_angle = aim_dir
 		t.arc_half = aim_half
 		if pending_type == "sniper":
 			t.auto_fire = pending_auto_fire
+	t.setup(pending_type)
 	world.add_child(t)
 	deploy_left[pending_type] = _deploy_count(pending_type) - 1
 	mode = MODE_IDLE
@@ -328,32 +363,47 @@ func _unhandled_input(event: InputEvent) -> void:
 				cam.zoom = Vector2(_zoom, _zoom)
 			return
 
-	# --- single-pointer placement (touch or mouse) ---
+	# --- single-pointer events (touch or mouse): down / drag / release ---
 	var pos := Vector2.ZERO
 	var down := false
 	var drag := false
-	if event is InputEventScreenTouch and event.pressed and _active_touches.size() < 2:
-		pos = event.position; down = true
+	var up := false
+	if event is InputEventScreenTouch and _active_touches.size() < 2:
+		pos = event.position
+		down = event.pressed
+		up = not event.pressed
 	elif event is InputEventScreenDrag and _active_touches.size() < 2:
 		pos = event.position; drag = true
-	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		pos = event.position; down = true
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		pos = event.position
+		down = event.pressed
+		up = not event.pressed
 	elif event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_LEFT):
 		pos = event.position; drag = true
-	if not (down or drag):
+	if not (down or drag or up):
 		return
 
 	var world_pos := _screen_to_world(pos)
 	if mode == MODE_PREVIEW:
-		ghost_pos = world_pos
+		if down or drag:
+			ghost_pos = world_pos
 	elif mode == MODE_AIM:
-		aim_dir = (world_pos - ghost_pos).angle()
-	elif mode == MODE_STRIKE and down:
-		if PLAY_RECT.has_point(world_pos):
-			_call_strike(world_pos)
-		else:
-			mode = MODE_IDLE
-			_flash("Artillery cancelled")
+		if down or drag:
+			aim_dir = (world_pos - ghost_pos).angle()
+	elif mode == MODE_STRIKE:
+		# drag a corridor: down = anchor, drag = stretch, release = planes inbound
+		if down:
+			strike_from = world_pos
+			strike_to = world_pos
+			strike_dragging = true
+		elif drag and strike_dragging:
+			strike_to = world_pos
+		elif up and strike_dragging:
+			strike_dragging = false
+			if strike_from.distance_to(strike_to) >= STRIKE_MIN_DRAG:
+				_call_air_strike(strike_from, strike_to)
+			else:
+				_flash("Drag a LONGER line for the bombing run")
 	elif mode == MODE_IDLE and down:
 		# tap a turret: tap-fire turrets shoot, and any turret opens the upgrade panel
 		for c in world.get_children():
@@ -365,36 +415,38 @@ func _unhandled_input(event: InputEvent) -> void:
 		_close_upgrade()   # tapped empty ground
 
 
-# ================= Artillery strike =================
+# ================= Air strike =================
 func _strike_pressed() -> void:
 	if finished or strike_cd > 0.0 or mode != MODE_IDLE:
 		return
 	mode = MODE_STRIKE
-	_flash("TAP THE BATTLEFIELD to call artillery!")
+	strike_dragging = false
+	_flash("DRAG a line — planes will bomb along it!")
 
 
-func _call_strike(at: Vector2) -> void:
+func _call_air_strike(from_p: Vector2, to_p: Vector2) -> void:
 	mode = MODE_IDLE
 	strike_cd = STRIKE_COOLDOWN
-	_flash("ARTILLERY INBOUND!")
-	for i in range(STRIKE_SHELLS):
-		var impact := at + Vector2(
-			randf_range(-STRIKE_SPREAD, STRIKE_SPREAD),
-			randf_range(-STRIKE_SPREAD * 0.6, STRIKE_SPREAD * 0.6))
-		get_tree().create_timer(0.16 * i).timeout.connect(_fire_shell.bind(impact))
-
-
-func _fire_shell(impact: Vector2) -> void:
-	if finished or not is_instance_valid(world):
-		return
-	var m := Missile.new()
-	m.battle = self
-	m.position = impact + Vector2(randf_range(-40, 40), -760)
-	m.target_pos = impact
-	m.speed = 1050.0
-	m.damage = STRIKE_DAMAGE
-	m.blast_radius = STRIKE_RADIUS
-	world.add_child(m)
+	_flash("AIR STRIKE INBOUND!")
+	shake(3.0)
+	for i in range(STRIKE_PLANES):
+		var p := StrikePlane.new()
+		p.battle = self
+		p.from_pos = from_p
+		p.to_pos = to_p
+		p.bombs = STRIKE_BOMBS
+		p.damage = STRIKE_DAMAGE
+		p.blast_radius = STRIKE_RADIUS
+		p.lateral = (float(i) - (STRIKE_PLANES - 1) * 0.5) * 56.0
+		p.z_index = 50            # planes fly ABOVE everything
+		# stagger the wingman slightly behind the leader
+		if i == 0:
+			world.add_child(p)
+		else:
+			get_tree().create_timer(0.30 * i).timeout.connect(func():
+				if not finished and is_instance_valid(world):
+					world.add_child(p))
+	world.queue_redraw()
 
 
 # ================= In-battle turret upgrades =================
@@ -420,7 +472,7 @@ func _refresh_upgrade_panel() -> void:
 		b_upg.disabled = true
 		b_upg.text = "Maxed out"
 	else:
-		lbl_upg.text = "%s  Lv%d → Lv%d\n+35%% dmg  +12%% range  faster" % [t.def["name"], t.lvl, t.lvl + 1]
+		lbl_upg.text = "%s  Lv%d → Lv%d\n+30%% dmg  +10%% range  faster" % [t.def["name"], t.lvl, t.lvl + 1]
 		b_upg.text = "Upgrade  (%d coins)" % t.upgrade_cost()
 		b_upg.disabled = Game.coins < t.upgrade_cost()
 
@@ -450,27 +502,107 @@ func _build_ui() -> void:
 	ui = CanvasLayer.new()
 	add_child(ui)
 
-	lbl_top = Label.new()
-	lbl_top.position = Vector2(24, 16)
-	lbl_top.add_theme_font_size_override("font_size", 30)
-	lbl_top.add_theme_color_override("font_outline_color", Color.BLACK)
-	lbl_top.add_theme_constant_override("outline_size", 6)
-	ui.add_child(lbl_top)
+	# ---- top HUD strip: level badge | gate bar | coins | wave status ----
+	var top := PanelContainer.new()
+	top.anchor_right = 1.0
+	top.offset_left = 12
+	top.offset_right = -12
+	top.offset_top = 8
+	var top_sb := StyleBoxFlat.new()
+	top_sb.bg_color = Color(0.10, 0.09, 0.08, 0.88)
+	top_sb.border_color = Color(0.42, 0.35, 0.26)
+	top_sb.set_border_width_all(2)
+	top_sb.set_corner_radius_all(12)
+	top_sb.content_margin_left = 18
+	top_sb.content_margin_right = 18
+	top_sb.content_margin_top = 6
+	top_sb.content_margin_bottom = 6
+	top.add_theme_stylebox_override("panel", top_sb)
+	ui.add_child(top)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	top.add_child(row)
 
+	lbl_level = Label.new()
+	lbl_level.add_theme_font_size_override("font_size", 28)
+	lbl_level.add_theme_color_override("font_color", Color(0.98, 0.86, 0.42))
+	row.add_child(lbl_level)
+
+	var gate_icon := TextureRect.new()
+	gate_icon.texture = Assets.tex("gate")
+	gate_icon.custom_minimum_size = Vector2(36, 36)
+	gate_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	gate_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	row.add_child(gate_icon)
+
+	gate_bar = ProgressBar.new()
+	gate_bar.min_value = 0
+	gate_bar.max_value = GATE_HP_MAX
+	gate_bar.value = GATE_HP_MAX
+	gate_bar.show_percentage = false
+	gate_bar.custom_minimum_size = Vector2(220, 26)
+	gate_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var gb_bg := StyleBoxFlat.new()
+	gb_bg.bg_color = Color(0.05, 0.05, 0.05)
+	gb_bg.set_corner_radius_all(8)
+	var gb_fill := StyleBoxFlat.new()
+	gb_fill.bg_color = Color(0.35, 0.78, 0.35)
+	gb_fill.set_corner_radius_all(8)
+	gate_bar.add_theme_stylebox_override("background", gb_bg)
+	gate_bar.add_theme_stylebox_override("fill", gb_fill)
+	row.add_child(gate_bar)
+
+	var coin_icon := TextureRect.new()
+	coin_icon.texture = Assets.tex("coin")
+	coin_icon.custom_minimum_size = Vector2(32, 32)
+	coin_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	coin_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	row.add_child(coin_icon)
+
+	lbl_coins = Label.new()
+	lbl_coins.add_theme_font_size_override("font_size", 28)
+	lbl_coins.add_theme_color_override("font_color", Color(0.98, 0.86, 0.42))
+	row.add_child(lbl_coins)
+
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+
+	lbl_wave = Label.new()
+	lbl_wave.add_theme_font_size_override("font_size", 26)
+	row.add_child(lbl_wave)
+
+	# ---- flash message banner (center-top, hidden when empty) ----
+	msg_panel = PanelContainer.new()
+	msg_panel.anchor_left = 0.5
+	msg_panel.anchor_right = 0.5
+	msg_panel.offset_top = 74
+	msg_panel.offset_left = -320
+	msg_panel.offset_right = 320
+	var msg_sb := StyleBoxFlat.new()
+	msg_sb.bg_color = Color(0.12, 0.08, 0.03, 0.85)
+	msg_sb.border_color = Color(0.85, 0.68, 0.28)
+	msg_sb.set_border_width_all(2)
+	msg_sb.set_corner_radius_all(10)
+	msg_sb.content_margin_left = 16
+	msg_sb.content_margin_right = 16
+	msg_sb.content_margin_top = 6
+	msg_sb.content_margin_bottom = 6
+	msg_panel.add_theme_stylebox_override("panel", msg_sb)
+	msg_panel.visible = false
+	ui.add_child(msg_panel)
 	lbl_msg = Label.new()
-	lbl_msg.position = Vector2(24, 92)
 	lbl_msg.add_theme_font_size_override("font_size", 26)
 	lbl_msg.add_theme_color_override("font_color", Color(1, 0.9, 0.45))
-	lbl_msg.add_theme_color_override("font_outline_color", Color.BLACK)
-	lbl_msg.add_theme_constant_override("outline_size", 6)
-	ui.add_child(lbl_msg)
+	lbl_msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	msg_panel.add_child(lbl_msg)
 
 	# deploy bar (bottom-left), one button per owned turret type
 	deploy_bar = HBoxContainer.new()
 	deploy_bar.add_theme_constant_override("separation", 12)
 	deploy_bar.anchor_top = 1.0
 	deploy_bar.anchor_bottom = 1.0
-	deploy_bar.offset_top = -96
+	deploy_bar.offset_top = -100
 	deploy_bar.offset_left = 24
 	deploy_bar.offset_bottom = -16
 	ui.add_child(deploy_bar)
@@ -513,8 +645,6 @@ func _build_ui() -> void:
 	ui.add_child(aim_panel)
 	lbl_arc = Label.new()
 	lbl_arc.add_theme_font_size_override("font_size", 24)
-	lbl_arc.add_theme_color_override("font_outline_color", Color.BLACK)
-	lbl_arc.add_theme_constant_override("outline_size", 6)
 	aim_panel.add_child(lbl_arc)
 	arc_slider = HSlider.new()
 	arc_slider.min_value = 20
@@ -530,15 +660,17 @@ func _build_ui() -> void:
 	auto_check.toggled.connect(func(v): pending_auto_fire = v)
 	aim_panel.add_child(auto_check)
 
-	# artillery button (right edge, above the confirm row)
+	# air strike button (right edge, above the confirm row) with a plane icon
 	btn_strike = Button.new()
-	btn_strike.text = "ARTILLERY"
-	btn_strike.custom_minimum_size = Vector2(200, 68)
+	btn_strike.text = "AIR STRIKE"
+	btn_strike.icon = Assets.tex("plane")
+	btn_strike.expand_icon = true
+	btn_strike.custom_minimum_size = Vector2(230, 68)
 	btn_strike.anchor_left = 1.0
 	btn_strike.anchor_right = 1.0
 	btn_strike.anchor_top = 1.0
 	btn_strike.anchor_bottom = 1.0
-	btn_strike.offset_left = -224
+	btn_strike.offset_left = -254
 	btn_strike.offset_right = -24
 	btn_strike.offset_top = -180
 	btn_strike.offset_bottom = -112
@@ -559,8 +691,6 @@ func _build_ui() -> void:
 	ui.add_child(upgrade_panel)
 	lbl_upg = Label.new()
 	lbl_upg.add_theme_font_size_override("font_size", 24)
-	lbl_upg.add_theme_color_override("font_outline_color", Color.BLACK)
-	lbl_upg.add_theme_constant_override("outline_size", 6)
 	upgrade_panel.add_child(lbl_upg)
 	b_upg = Button.new()
 	b_upg.custom_minimum_size = Vector2(300, 64)
@@ -598,11 +728,11 @@ func _refresh_deploy_bar() -> void:
 			continue
 		var b := Button.new()
 		b.text = "%s\nx%d" % [TurretData.get_def(type_id)["name"], n]
-		b.custom_minimum_size = Vector2(120, 84)
+		b.custom_minimum_size = Vector2(126, 88)
 		b.icon = Assets.turret_tex(type_id)
 		b.expand_icon = true
 		b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
-		b.add_theme_font_size_override("font_size", 20)
+		b.add_theme_font_size_override("font_size", 19)
 		b.pressed.connect(_select_type.bind(type_id))
 		deploy_bar.add_child(b)
 
@@ -610,6 +740,7 @@ func _refresh_deploy_bar() -> void:
 var _msg_timer := 0.0
 func _flash(msg: String) -> void:
 	lbl_msg.text = msg
+	msg_panel.visible = true
 	_msg_timer = 2.5
 
 
@@ -618,24 +749,30 @@ func _update_top() -> void:
 		_msg_timer -= get_process_delta_time()
 		if _msg_timer <= 0.0:
 			lbl_msg.text = ""
+			msg_panel.visible = false
 	if finished:
 		return
-	var status := "Wave %d/%d" % [wave, waves_total]
+	var status: String
 	if not wave_active:
-		status = "PLACE TURRETS!  Wave %d in %.0fs" % [wave + 1, ceil(between_timer)]
+		status = "Wave %d in %.0fs — PLACE TURRETS" % [wave + 1, ceil(between_timer)]
 	else:
-		# orcs still to come this wave + those currently alive
 		var remaining: int = (to_spawn - spawned) + enemies.size()
-		status = "Wave %d/%d   Orcs left: %d" % [wave, waves_total, remaining]
-	var boss_tag := "  BOSS LEVEL" if boss_wave else ""
-	lbl_top.text = "Level %d%s   Gate %d/%d   Coins %d   %s" % [
-		level, boss_tag, gate_hp, GATE_HP_MAX, Game.coins, status]
+		status = "Wave %d/%d    Orcs left: %d" % [wave, waves_total, remaining]
+	lbl_level.text = ("LV %d  BOSS" % level) if boss_wave else ("LV %d" % level)
+	lbl_coins.text = str(Game.coins)
+	lbl_wave.text = status
+	gate_bar.value = gate_hp
+	var fill: StyleBoxFlat = gate_bar.get_theme_stylebox("fill")
+	if fill:
+		var pct := float(gate_hp) / GATE_HP_MAX
+		fill.bg_color = Color(0.35, 0.78, 0.35) if pct > 0.5 else \
+			(Color(0.9, 0.75, 0.2) if pct > 0.25 else Color(0.9, 0.25, 0.2))
 	if btn_strike:
 		if strike_cd > 0.0:
-			btn_strike.text = "ARTILLERY %ds" % int(ceil(strike_cd))
+			btn_strike.text = "STRIKE %ds" % int(ceil(strike_cd))
 			btn_strike.disabled = true
 		else:
-			btn_strike.text = "ARTILLERY"
+			btn_strike.text = "AIR STRIKE"
 			btn_strike.disabled = false
 	# keep upgrade affordability live while coins change mid-battle
 	if upgrade_panel and upgrade_panel.visible:
@@ -645,11 +782,11 @@ func _update_top() -> void:
 # ================= End states =================
 func _victory() -> void:
 	finished = true
-	Game.add_xp(20 + level * 4)
-	Game.add_coins(30 + level * 5)
+	Game.add_xp(15 + level * 3)
+	Game.add_coins(18 + level * 3)
 	Game.highest_level = max(Game.highest_level, level + 1)
 	Game.save_game()
-	_show_overlay("VICTORY!", "Level %d cleared" % level, "Continue", "res://scenes/MainMenu.tscn")
+	_show_overlay("VICTORY!", "Level %d cleared" % level, "Next Level", "res://scenes/Battle.tscn")
 
 
 func _defeat() -> void:
@@ -658,9 +795,10 @@ func _defeat() -> void:
 		if is_instance_valid(e):
 			e.queue_free()
 	enemies.clear()
-	# lose-but-earn: salvage rewards so a failed run still makes progress
-	var salvage_coins := 10 + level * 2 + wave * 5
-	var salvage_xp := 8 + level + wave * 4
+	# lose-but-earn: modest salvage so a failed run still makes SOME progress,
+	# but losing must sting enough that the player rethinks the layout
+	var salvage_coins := 4 + level + wave * 2
+	var salvage_xp := 6 + level + wave * 2
 	Game.add_coins(salvage_coins)
 	Game.add_xp(salvage_xp)
 	Game.save_game()
@@ -675,26 +813,32 @@ func _show_overlay(title: String, sub: String, btn: String, primary_scene: Strin
 	overlay.anchor_bottom = 1.0
 	ui.add_child(overlay)
 	var bg := ColorRect.new()
-	bg.color = Color(0, 0, 0, 0.6)
+	bg.color = Color(0, 0, 0, 0.65)
 	bg.anchor_right = 1.0
 	bg.anchor_bottom = 1.0
 	overlay.add_child(bg)
+	var panel := PanelContainer.new()
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_bottom = 0.5
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	overlay.add_child(panel)
 	var vb := VBoxContainer.new()
-	vb.anchor_left = 0.5
-	vb.anchor_right = 0.5
-	vb.anchor_top = 0.4
-	vb.anchor_bottom = 0.4
 	vb.alignment = BoxContainer.ALIGNMENT_CENTER
-	vb.add_theme_constant_override("separation", 20)
-	overlay.add_child(vb)
+	vb.add_theme_constant_override("separation", 18)
+	panel.add_child(vb)
 	var t := Label.new()
 	t.text = title
 	t.add_theme_font_size_override("font_size", 72)
+	t.add_theme_color_override("font_color",
+		Color(0.55, 0.95, 0.5) if title.begins_with("V") else Color(0.95, 0.35, 0.3))
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(t)
 	var s := Label.new()
 	s.text = sub
-	s.add_theme_font_size_override("font_size", 34)
+	s.add_theme_font_size_override("font_size", 32)
 	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(s)
 	var row := HBoxContainer.new()
@@ -703,14 +847,19 @@ func _show_overlay(title: String, sub: String, btn: String, primary_scene: Strin
 	vb.add_child(row)
 	var b := Button.new()
 	b.text = btn
-	b.custom_minimum_size = Vector2(220, 80)
-	b.pressed.connect(func(): get_tree().change_scene_to_file(primary_scene))
+	b.custom_minimum_size = Vector2(230, 80)
+	b.pressed.connect(func(): Game.goto(primary_scene))
 	row.add_child(b)
 	var w := Button.new()
 	w.text = "Workshop"
 	w.custom_minimum_size = Vector2(220, 80)
 	w.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/Workshop.tscn"))
 	row.add_child(w)
+	var m := Button.new()
+	m.text = "Menu"
+	m.custom_minimum_size = Vector2(160, 80)
+	m.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/MainMenu.tscn"))
+	row.add_child(m)
 
 
 # ================= Geometry / drawing =================

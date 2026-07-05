@@ -5,7 +5,7 @@ All sprite assets are sourced from free, CC0-licensed packs by **Kenney** (kenne
 ## Kenney Tower Defense (Top-Down)
 **URL:** https://kenney.nl/assets/tower-defense-top-down  
 **License:** CC0 (Public Domain)  
-**Used:** turret sprites, projectiles (bullet, rocket), explosion flames, ground tiles (grass, dirt), UI icon frames.
+**Used:** turret bases + gun sprites (two-part rotating turrets), attack plane + plane shadow (air strike), coin icon, projectiles (bullet, rocket), explosion flames, crater, ground tiles (grass, dirt), decorations (trees, bushes, plants, rocks), UI icon frames.
 
 ## Kenney Tiny Dungeon
 **URL:** https://kenney.nl/assets/tiny-dungeon  
