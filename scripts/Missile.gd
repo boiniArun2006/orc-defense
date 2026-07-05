@@ -53,6 +53,7 @@ func _explode(at: Vector2) -> void:
 	fx.position = at
 	fx.radius = blast_radius
 	battle.world.add_child(fx)
+	battle.shake(4.0)
 	queue_free()
 
 

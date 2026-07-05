@@ -12,6 +12,7 @@ var coin_reward := 4
 var xp_reward := 3
 var gate_damage := 1
 var is_boss := false
+var battle: Node                 # set by Battle at spawn; used for gore/number FX
 
 var _target_index := 1
 var _spawn_t := 0.0          # grow-in so orcs visibly emerge from the cave
@@ -83,6 +84,8 @@ func take_damage(amount: float) -> void:
 	hp -= amount
 	_hurt = true
 	_flash = 0.12
+	if battle != null and battle.gore != null:
+		battle.gore.add_hit(position, amount, hp <= 0.0)
 	if hp <= 0.0:
 		died.emit(coin_reward, xp_reward)
 		queue_free()

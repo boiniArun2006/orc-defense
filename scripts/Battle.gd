@@ -17,6 +17,14 @@ const MAX_ALIVE := 200            # concurrency cap: pause spawns above this (pe
 const MODE_IDLE := 0
 const MODE_PREVIEW := 1
 const MODE_AIM := 2
+const MODE_STRIKE := 3           # artillery targeting: next tap calls the barrage
+
+# ---- Artillery ability ----
+const STRIKE_COOLDOWN := 45.0
+const STRIKE_SHELLS := 6
+const STRIKE_SPREAD := 130.0
+const STRIKE_DAMAGE := 55.0
+const STRIKE_RADIUS := 85.0
 
 # Build-phase timing: generous window before wave 1 and between waves so the
 # player can actually place/aim turrets under no pressure.
@@ -64,6 +72,10 @@ var _active_touches := {}
 
 # World layer that the camera looks at (map + units live here)
 var world: Node2D
+var gore: GoreLayer              # corpses / blood / damage numbers (under units)
+var strike_cd := 0.0             # artillery cooldown remaining
+var _shake := 0.0                # camera shake amplitude
+var sel_turret: Turret = null    # turret selected for in-battle upgrade
 
 # UI refs
 var ui: CanvasLayer
@@ -76,6 +88,10 @@ var lbl_arc: Label
 var arc_slider: HSlider
 var auto_check: CheckButton
 var overlay: Control
+var btn_strike: Button
+var upgrade_panel: VBoxContainer
+var lbl_upg: Label
+var b_upg: Button
 
 
 func _ready() -> void:
@@ -92,6 +108,9 @@ func _ready() -> void:
 	ground.biome = map["biome"]
 	ground.decos = map["decos"]
 	add_child(ground)
+	# gore layer: corpses/blood/damage numbers, above ground, below units
+	gore = GoreLayer.new()
+	add_child(gore)
 	# per-frame overlay layer that also parents the units
 	world = BattleWorld.new()
 	world.battle = self
@@ -135,6 +154,14 @@ func _process(delta: float) -> void:
 			between_timer -= delta
 			if between_timer <= 0.0:
 				_start_wave()
+	# artillery cooldown + camera shake decay
+	if strike_cd > 0.0:
+		strike_cd = max(0.0, strike_cd - delta)
+	if _shake > 0.01:
+		_shake = move_toward(_shake, 0.0, 24.0 * delta)
+		cam.offset = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake
+	elif cam.offset != Vector2.ZERO:
+		cam.offset = Vector2.ZERO
 	_update_top()
 	# only the gate + placement ghost need per-frame redraw; keep it to placement mode
 	if mode != MODE_IDLE:
@@ -185,15 +212,24 @@ func _spawn_one() -> void:
 		e.xp_reward = 1
 		e.gate_damage = ORC_GATE_DAMAGE
 	e.hp = e.max_hp
-	e.died.connect(_on_enemy_died)
+	e.battle = self
+	e.died.connect(_on_enemy_died.bind(e))
 	e.reached_gate.connect(_on_enemy_reached_gate)
 	world.add_child(e)
 	enemies.append(e)
 
 
-func _on_enemy_died(coins: int, xp: int) -> void:
+func _on_enemy_died(coins: int, xp: int, e: Enemy) -> void:
 	Game.add_coins(coins)
 	Game.add_xp(xp)
+	if is_instance_valid(e):
+		gore.add_corpse(e.position, e.is_boss)
+		if e.is_boss:
+			shake(8.0)
+
+
+func shake(amount: float) -> void:
+	_shake = max(_shake, amount)
 
 
 func _on_enemy_reached_gate(dmg: int) -> void:
@@ -312,12 +348,95 @@ func _unhandled_input(event: InputEvent) -> void:
 		ghost_pos = world_pos
 	elif mode == MODE_AIM:
 		aim_dir = (world_pos - ghost_pos).angle()
+	elif mode == MODE_STRIKE and down:
+		if PLAY_RECT.has_point(world_pos):
+			_call_strike(world_pos)
+		else:
+			mode = MODE_IDLE
+			_flash("Artillery cancelled")
 	elif mode == MODE_IDLE and down:
-		# tap an existing tap-fire turret to fire it
+		# tap a turret: tap-fire turrets shoot, and any turret opens the upgrade panel
 		for c in world.get_children():
-			if c is Turret and c.def.get("can_tap", false) and not c.auto_fire:
-				if c.position.distance_to(world_pos) < 40.0:
+			if c is Turret and c.position.distance_to(world_pos) < 44.0:
+				if c.def.get("can_tap", false) and not c.auto_fire:
 					c.tap_fire()
+				_select_turret(c)
+				return
+		_close_upgrade()   # tapped empty ground
+
+
+# ================= Artillery strike =================
+func _strike_pressed() -> void:
+	if finished or strike_cd > 0.0 or mode != MODE_IDLE:
+		return
+	mode = MODE_STRIKE
+	_flash("TAP THE BATTLEFIELD to call artillery!")
+
+
+func _call_strike(at: Vector2) -> void:
+	mode = MODE_IDLE
+	strike_cd = STRIKE_COOLDOWN
+	_flash("ARTILLERY INBOUND!")
+	for i in range(STRIKE_SHELLS):
+		var impact := at + Vector2(
+			randf_range(-STRIKE_SPREAD, STRIKE_SPREAD),
+			randf_range(-STRIKE_SPREAD * 0.6, STRIKE_SPREAD * 0.6))
+		get_tree().create_timer(0.16 * i).timeout.connect(_fire_shell.bind(impact))
+
+
+func _fire_shell(impact: Vector2) -> void:
+	if finished or not is_instance_valid(world):
+		return
+	var m := Missile.new()
+	m.battle = self
+	m.position = impact + Vector2(randf_range(-40, 40), -760)
+	m.target_pos = impact
+	m.speed = 1050.0
+	m.damage = STRIKE_DAMAGE
+	m.blast_radius = STRIKE_RADIUS
+	world.add_child(m)
+
+
+# ================= In-battle turret upgrades =================
+func _select_turret(t: Turret) -> void:
+	sel_turret = t
+	_refresh_upgrade_panel()
+
+
+func _close_upgrade() -> void:
+	sel_turret = null
+	if upgrade_panel:
+		upgrade_panel.visible = false
+
+
+func _refresh_upgrade_panel() -> void:
+	if sel_turret == null or not is_instance_valid(sel_turret):
+		_close_upgrade()
+		return
+	upgrade_panel.visible = true
+	var t := sel_turret
+	if t.lvl >= Turret.MAX_LVL:
+		lbl_upg.text = "%s  Lv%d (MAX)" % [t.def["name"], t.lvl]
+		b_upg.disabled = true
+		b_upg.text = "Maxed out"
+	else:
+		lbl_upg.text = "%s  Lv%d → Lv%d\n+35%% dmg  +12%% range  faster" % [t.def["name"], t.lvl, t.lvl + 1]
+		b_upg.text = "Upgrade  (%d coins)" % t.upgrade_cost()
+		b_upg.disabled = Game.coins < t.upgrade_cost()
+
+
+func _do_upgrade() -> void:
+	if sel_turret == null or not is_instance_valid(sel_turret):
+		_close_upgrade()
+		return
+	var cost := sel_turret.upgrade_cost()
+	if Game.coins < cost or sel_turret.lvl >= Turret.MAX_LVL:
+		_flash("Not enough coins")
+		return
+	Game.add_coins(-cost)
+	sel_turret.upgrade()
+	Game.save_game()
+	_refresh_upgrade_panel()
 
 
 func _screen_to_world(screen_pos: Vector2) -> Vector2:
@@ -411,6 +530,48 @@ func _build_ui() -> void:
 	auto_check.toggled.connect(func(v): pending_auto_fire = v)
 	aim_panel.add_child(auto_check)
 
+	# artillery button (right edge, above the confirm row)
+	btn_strike = Button.new()
+	btn_strike.text = "ARTILLERY"
+	btn_strike.custom_minimum_size = Vector2(200, 68)
+	btn_strike.anchor_left = 1.0
+	btn_strike.anchor_right = 1.0
+	btn_strike.anchor_top = 1.0
+	btn_strike.anchor_bottom = 1.0
+	btn_strike.offset_left = -224
+	btn_strike.offset_right = -24
+	btn_strike.offset_top = -180
+	btn_strike.offset_bottom = -112
+	btn_strike.pressed.connect(_strike_pressed)
+	ui.add_child(btn_strike)
+
+	# turret upgrade panel (right edge, mid-screen; shown when a turret is tapped)
+	upgrade_panel = VBoxContainer.new()
+	upgrade_panel.add_theme_constant_override("separation", 10)
+	upgrade_panel.anchor_left = 1.0
+	upgrade_panel.anchor_right = 1.0
+	upgrade_panel.anchor_top = 0.5
+	upgrade_panel.anchor_bottom = 0.5
+	upgrade_panel.offset_left = -340
+	upgrade_panel.offset_right = -24
+	upgrade_panel.offset_top = -110
+	upgrade_panel.visible = false
+	ui.add_child(upgrade_panel)
+	lbl_upg = Label.new()
+	lbl_upg.add_theme_font_size_override("font_size", 24)
+	lbl_upg.add_theme_color_override("font_outline_color", Color.BLACK)
+	lbl_upg.add_theme_constant_override("outline_size", 6)
+	upgrade_panel.add_child(lbl_upg)
+	b_upg = Button.new()
+	b_upg.custom_minimum_size = Vector2(300, 64)
+	b_upg.pressed.connect(_do_upgrade)
+	upgrade_panel.add_child(b_upg)
+	var b_close := Button.new()
+	b_close.text = "Close"
+	b_close.custom_minimum_size = Vector2(300, 52)
+	b_close.pressed.connect(_close_upgrade)
+	upgrade_panel.add_child(b_close)
+
 	_sync_placement_ui()
 
 
@@ -421,7 +582,7 @@ func _on_arc_changed(v: float) -> void:
 
 
 func _sync_placement_ui() -> void:
-	confirm_box.visible = mode != MODE_IDLE
+	confirm_box.visible = mode == MODE_PREVIEW or mode == MODE_AIM
 	aim_panel.visible = mode == MODE_AIM
 	auto_check.visible = mode == MODE_AIM and pending_type == "sniper"
 	if world:
@@ -469,6 +630,16 @@ func _update_top() -> void:
 	var boss_tag := "  BOSS LEVEL" if boss_wave else ""
 	lbl_top.text = "Level %d%s   Gate %d/%d   Coins %d   %s" % [
 		level, boss_tag, gate_hp, GATE_HP_MAX, Game.coins, status]
+	if btn_strike:
+		if strike_cd > 0.0:
+			btn_strike.text = "ARTILLERY %ds" % int(ceil(strike_cd))
+			btn_strike.disabled = true
+		else:
+			btn_strike.text = "ARTILLERY"
+			btn_strike.disabled = false
+	# keep upgrade affordability live while coins change mid-battle
+	if upgrade_panel and upgrade_panel.visible:
+		_refresh_upgrade_panel()
 
 
 # ================= End states =================
@@ -487,8 +658,15 @@ func _defeat() -> void:
 		if is_instance_valid(e):
 			e.queue_free()
 	enemies.clear()
+	# lose-but-earn: salvage rewards so a failed run still makes progress
+	var salvage_coins := 10 + level * 2 + wave * 5
+	var salvage_xp := 8 + level + wave * 4
+	Game.add_coins(salvage_coins)
+	Game.add_xp(salvage_xp)
 	Game.save_game()
-	_show_overlay("DEFEAT", "The gate has fallen", "Retry", "res://scenes/Battle.tscn")
+	_show_overlay("DEFEAT",
+		"The gate has fallen\nSalvage recovered: +%d coins, +%d XP" % [salvage_coins, salvage_xp],
+		"Retry", "res://scenes/Battle.tscn")
 
 
 func _show_overlay(title: String, sub: String, btn: String, primary_scene: String) -> void:

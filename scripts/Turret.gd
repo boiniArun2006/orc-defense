@@ -16,6 +16,9 @@ var bullet_speed := 520.0
 var kind := "gun"
 var blast_radius := 0.0
 
+const MAX_LVL := 3
+var lvl := 1                     # in-battle upgrade level (reset each battle)
+
 var aim_angle := 0.0             # facing, radians
 var arc_half := deg_to_rad(60)   # half of the firing arc; full arc <= 120 deg
 var auto_fire := true            # sniper may set this false (tap-fire)
@@ -40,6 +43,21 @@ func setup(t_id: String) -> void:
 	# Kenney turret barrels point UP; rotate so "up" aligns with aim_angle.
 	_spr.rotation = aim_angle + PI / 2.0
 	add_child(_spr)
+	queue_redraw()
+
+
+func upgrade_cost() -> int:
+	# scales off the turret's workshop price so big guns cost more to boost
+	return int(round(def["base_cost"] * 0.6 * lvl))
+
+
+func upgrade() -> void:
+	if lvl >= MAX_LVL:
+		return
+	lvl += 1
+	damage *= 1.35
+	range_px *= 1.12
+	fire_rate = max(0.03, fire_rate * 0.92)
 	queue_redraw()
 
 
@@ -129,6 +147,10 @@ func _draw() -> void:
 	if _muzzle > 0.0:
 		var tip := Vector2(26, 0).rotated(aim_angle) if kind == "gun" else Vector2.ZERO
 		draw_circle(tip, 7.0, Color(1.0, 0.85, 0.3, 0.9))
+	# upgrade pips under the turret (Lv2 = 1 pip, Lv3 = 2 pips)
+	for i in range(lvl - 1):
+		draw_circle(Vector2(-6.0 + 12.0 * i, 24.0), 4.0, Color(1.0, 0.85, 0.2))
+		draw_arc(Vector2(-6.0 + 12.0 * i, 24.0), 4.0, 0.0, TAU, 10, Color(0, 0, 0, 0.8), 1.5)
 
 
 func _draw_arc_region(col: Color) -> void:
