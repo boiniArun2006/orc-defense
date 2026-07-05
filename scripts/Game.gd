@@ -10,7 +10,7 @@ const SAVE_PATH := "user://save.json"
 # Level 1 needs 30 XP to hit level 2, etc. Beyond the list, scale up.
 const XP_CURVE := [0, 30, 70, 130, 210, 320, 460, 640]
 
-var coins := 80
+var coins := 60
 var xp := 0
 var char_level := 1
 var highest_level := 1                 # highest GAME level unlocked/reached
@@ -34,7 +34,7 @@ func _ready() -> void:
 
 
 func reset_progress() -> void:
-	coins = 80
+	coins = 60
 	xp = 0
 	char_level = 1
 	highest_level = 1
@@ -47,7 +47,8 @@ func reset_progress() -> void:
 # ---------- XP / character level ----------
 func add_xp(amount: int) -> void:
 	xp += amount
-	while char_level < XP_CURVE.size() and xp >= _xp_needed_total(char_level + 1):
+	# no artificial cap: past the curve, each level costs +220 XP more (see below)
+	while xp >= _xp_needed_total(char_level + 1):
 		char_level += 1
 	emit_changed()
 

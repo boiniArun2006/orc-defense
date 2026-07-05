@@ -42,7 +42,7 @@ func _draw_ghost() -> void:
 	var def: Dictionary = TurretData.get_def(battle.pending_type)
 	var gp: Vector2 = battle.ghost_pos
 	var col: Color = def.get("color", Color.WHITE)
-	var ok: bool = battle._dist_to_path(gp) >= 40.0
+	var ok: bool = battle._placement_ok(gp)
 	var tint := Color(col.r, col.g, col.b, 0.5) if ok else Color(1, 0.3, 0.3, 0.5)
 	# range ring
 	draw_arc(gp, def["range"], 0.0, TAU, 44, Color(1, 1, 1, 0.15), 1.5)

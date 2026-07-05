@@ -18,6 +18,13 @@ const MODE_IDLE := 0
 const MODE_PREVIEW := 1
 const MODE_AIM := 2
 
+# Build-phase timing: generous window before wave 1 and between waves so the
+# player can actually place/aim turrets under no pressure.
+const PREP_TIME := 10.0
+
+# Playable area for turret placement (inside the map's border frame)
+const PLAY_RECT := Rect2(40, 40, 1200, 640)
+
 var level := 1
 var gate_hp := GATE_HP_MAX
 
@@ -28,7 +35,7 @@ var spawned := 0
 var to_spawn := 0
 var spawn_timer := 0.0
 var spawn_interval := 0.9
-var between_timer := 3.0
+var between_timer := PREP_TIME
 var boss_wave := false
 var finished := false            # victory or defeat reached
 
@@ -143,15 +150,17 @@ func _start_wave() -> void:
 	var level_base: float = BASE_WAVE_SIZE * (1.0 + LEVEL_SIZE_BONUS * (level - 1))
 	to_spawn = int(round(level_base * pow(WAVE_GROWTH, wave - 1)))
 	# fast trickle so many are on screen at once (clamped, subject to MAX_ALIVE gate)
-	spawn_interval = max(0.05, 0.22 - level * 0.008)
+	spawn_interval = max(0.05, 0.16 - level * 0.008)
 	spawn_timer = 0.0
+	_flash("HORDE INCOMING!")
 
 
 func _end_wave() -> void:
 	wave_active = false
-	between_timer = 4.0
+	between_timer = PREP_TIME
 	Game.add_xp(6 + level)
 	Game.add_coins(5 + level)              # trimmed wave bonus
+	Game.save_game()                       # don't lose battle earnings if OS kills the app
 	if wave >= waves_total:
 		_victory()
 
@@ -168,9 +177,10 @@ func _spawn_one() -> void:
 		e.xp_reward = 40 + level * 3
 		e.gate_damage = 25             # a boss breaching hurts a lot
 	else:
-		# lots of weaker orcs — die to sustained fire, not one shot
-		e.speed = 55.0 + level * 2.0
-		e.max_hp = 18.0 + level * 6.0 + wave * 3.0
+		# lots of weaker orcs — die to sustained fire, not one shot.
+		# Meaty enough from level 1 that unguarded stretches WILL leak.
+		e.speed = 62.0 + level * 2.4
+		e.max_hp = 30.0 + level * 7.0 + wave * 4.0
 		e.coin_reward = 1              # earn turrets, don't drown in gold
 		e.xp_reward = 1
 		e.gate_damage = ORC_GATE_DAMAGE
@@ -210,6 +220,9 @@ func _select_type(type_id: String) -> void:
 
 func _confirm_pressed() -> void:
 	if mode == MODE_PREVIEW:
+		if not PLAY_RECT.has_point(ghost_pos):
+			_flash("Outside the battlefield — place inside the border")
+			return
 		if _dist_to_path(ghost_pos) < 40.0:
 			_flash("Too close to the path")
 			return
@@ -448,7 +461,7 @@ func _update_top() -> void:
 		return
 	var status := "Wave %d/%d" % [wave, waves_total]
 	if not wave_active:
-		status = "Next wave in %.0f" % ceil(between_timer)
+		status = "PLACE TURRETS!  Wave %d in %.0fs" % [wave + 1, ceil(between_timer)]
 	else:
 		# orcs still to come this wave + those currently alive
 		var remaining: int = (to_spawn - spawned) + enemies.size()
@@ -523,6 +536,11 @@ func _show_overlay(title: String, sub: String, btn: String, primary_scene: Strin
 
 
 # ================= Geometry / drawing =================
+func _placement_ok(p: Vector2) -> bool:
+	# valid spot = inside the arena frame AND not on the orc road
+	return PLAY_RECT.has_point(p) and _dist_to_path(p) >= 40.0
+
+
 func _dist_to_path(p: Vector2) -> float:
 	var best := INF
 	for i in range(path_points.size() - 1):

@@ -25,3 +25,8 @@ base — place towers to stop them.
 - `scripts/Main.gd` — game loop, waves, economy, HUD, input
 - `scripts/Enemy.gd` / `Tower.gd` / `Bullet.gd` — the units
 - `.github/workflows/android.yml` — builds the APK automatically
+
+## License
+
+All Rights Reserved — see [LICENSE](LICENSE). This is a proprietary project;
+no copying, redistribution, or commercial use is permitted.

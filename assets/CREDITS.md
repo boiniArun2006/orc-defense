@@ -17,10 +17,11 @@ Also from **Kenney Tower Defense (Top-Down)** (CC0): grass, sand, stone ground
 tiles, path tiles, bush/tree/rock decorations, and the stone gate block.
 
 ## Font
-**Pixelify Sans** by Stefie Justprince (Google Fonts) — a readable pixel font
-chosen to match the pixel-art sprites.  
+**Russo One** by Jovanny Lemonad (Google Fonts) — a bold, highly readable
+display font that still looks game-y (replaced Pixelify Sans, which was hard
+to read at small UI sizes on phones).  
 **License:** OFL (SIL Open Font License)  
-**URL:** https://fonts.google.com/specimen/Pixelify+Sans
+**URL:** https://fonts.google.com/specimen/Russo+One
 
 ---
 

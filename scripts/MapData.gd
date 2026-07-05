@@ -33,7 +33,8 @@ static func _serpentine_h(rows: int, start_left: bool) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	var lane_h := (MARGIN_BOT - MARGIN_TOP) / float(max(1, rows - 1))
 	var left := start_left
-	pts.append(Vector2(-60, MARGIN_TOP))
+	# spawn INSIDE the arena so the orc cave (drawn at path[0]) is visible
+	pts.append(Vector2(52, MARGIN_TOP))
 	for i in range(rows):
 		var y := MARGIN_TOP + i * lane_h
 		if left:
@@ -49,7 +50,7 @@ static func _serpentine_v(cols: int, start_top: bool) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	var lane_w := (W - 2 * MARGIN_X) / float(max(1, cols - 1))
 	var top := start_top
-	pts.append(Vector2(MARGIN_X, -60))
+	pts.append(Vector2(MARGIN_X, 52))
 	for i in range(cols):
 		var x := MARGIN_X + i * lane_w
 		if top:
@@ -66,7 +67,7 @@ static func _zigzag(steps: int, from_left: bool) -> PackedVector2Array:
 	var lane_w := (W - 2 * MARGIN_X) / float(steps)
 	var x0: float = MARGIN_X if from_left else W - MARGIN_X
 	var dirx: float = 1.0 if from_left else -1.0
-	pts.append(Vector2(x0 - dirx * 190.0, -60))
+	pts.append(Vector2(clampf(x0 - dirx * 80.0, 52.0, W - 52.0), 52))
 	var hi := true
 	for i in range(steps + 1):
 		var x := x0 + dirx * lane_w * i
@@ -83,7 +84,7 @@ static func _stairs(steps: int, from_left: bool) -> PackedVector2Array:
 	var stepy := (MARGIN_BOT - MARGIN_TOP) / float(steps)
 	var x: float = MARGIN_X if from_left else W - MARGIN_X
 	var dirx: float = 1.0 if from_left else -1.0
-	pts.append(Vector2(x, -60))
+	pts.append(Vector2(x, 52))
 	pts.append(Vector2(x, MARGIN_TOP))
 	for i in range(steps):
 		x = clampf(x + dirx * stepx, MARGIN_X, W - MARGIN_X)

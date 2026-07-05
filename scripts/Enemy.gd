@@ -14,6 +14,7 @@ var gate_damage := 1
 var is_boss := false
 
 var _target_index := 1
+var _spawn_t := 0.0          # grow-in so orcs visibly emerge from the cave
 var _hurt := false
 var _walk_t := 0.0
 var _flash := 0.0            # white hit-flash timer
@@ -55,11 +56,15 @@ func _process(delta: float) -> void:
 		if abs(dir.x) > 0.05:
 			_spr.flip_h = dir.x < 0.0
 
+	# spawn pop: scale from small to full over ~0.3s (emerging from the cave)
+	_spawn_t = min(_spawn_t + delta * 3.5, 1.0)
+	var grow := lerpf(0.25, 1.0, _spawn_t)
+
 	# walk animation: vertical bob + subtle squash
 	_walk_t += delta * (speed * 0.10)
 	var bob := sin(_walk_t * 2.0)
 	_spr.position.y = -bob * 2.0
-	_spr.scale = Vector2(_base_scale, _base_scale * (1.0 + 0.06 * bob))
+	_spr.scale = Vector2(_base_scale, _base_scale * (1.0 + 0.06 * bob)) * grow
 
 	# hit flash decay
 	if _flash > 0.0:

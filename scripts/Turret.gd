@@ -108,6 +108,7 @@ func _fire_at(target: Node2D) -> void:
 		b.target = target
 		b.damage = damage
 		b.speed = bullet_speed
+		b.color = def.get("color", Color(1.0, 0.9, 0.5))
 		battle.world.add_child(b)
 	_cooldown = fire_rate
 	_muzzle = 0.06
