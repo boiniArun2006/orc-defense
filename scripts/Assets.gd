@@ -24,6 +24,24 @@ const SPRITES := {
 	"flame_4": "res://assets/sprites/flame_4.png",
 	"grass": "res://assets/sprites/grass.png",
 	"dirt": "res://assets/sprites/dirt.png",
+	"sand": "res://assets/sprites/sand.png",
+	"stone": "res://assets/sprites/stone.png",
+	"path_grass": "res://assets/sprites/path_grass.png",
+	"path_sand": "res://assets/sprites/path_sand.png",
+	"path_stone": "res://assets/sprites/path_stone.png",
+	"bush": "res://assets/sprites/bush.png",
+	"tree": "res://assets/sprites/tree.png",
+	"rock": "res://assets/sprites/rock.png",
+	"rock2": "res://assets/sprites/rock2.png",
+	"gate": "res://assets/sprites/gate.png",
+}
+
+
+# biome -> [ground tile key, path tile key]
+const BIOME_TILES := {
+	"grass": ["grass", "path_grass"],
+	"desert": ["sand", "path_sand"],
+	"stone": ["stone", "path_stone"],
 }
 
 

@@ -24,8 +24,8 @@ jobs:
         run: |
           mkdir -p assets/fonts
           if [ ! -s assets/fonts/ui.ttf ]; then
-            echo "Font missing — downloading Baloo 2..."
-            URL="https://github.com/google/fonts/raw/main/ofl/baloo2/Baloo2%5Bwght%5D.ttf"
+            echo "Font missing — downloading Pixelify Sans..."
+            URL="https://github.com/google/fonts/raw/main/ofl/pixelifysans/PixelifySans%5Bwght%5D.ttf"
             if command -v wget >/dev/null 2>&1; then
               wget -q -O assets/fonts/ui.ttf "$URL"
             elif command -v curl >/dev/null 2>&1; then

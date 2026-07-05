@@ -10,13 +10,17 @@ const SAVE_PATH := "user://save.json"
 # Level 1 needs 30 XP to hit level 2, etc. Beyond the list, scale up.
 const XP_CURVE := [0, 30, 70, 130, 210, 320, 460, 640]
 
-var coins := 150
+var coins := 80
 var xp := 0
 var char_level := 1
 var highest_level := 1                 # highest GAME level unlocked/reached
 
 var inventory := {}                    # type_id -> count owned (deployable)
 var purchase_counts := {}              # type_id -> times bought (price growth)
+
+# settings (audio wired later; persisted now so the Settings screen is ready)
+var music_on := true
+var sfx_on := true
 
 signal changed                         # emitted whenever state mutates (UI refresh)
 
@@ -27,6 +31,17 @@ func _ready() -> void:
 	if not FileAccess.file_exists(SAVE_PATH) and inventory.is_empty():
 		inventory = {"rifle": 3}
 		save_game()
+
+
+func reset_progress() -> void:
+	coins = 80
+	xp = 0
+	char_level = 1
+	highest_level = 1
+	inventory = {"rifle": 3}
+	purchase_counts = {}
+	save_game()
+	emit_changed()
 
 
 # ---------- XP / character level ----------
@@ -98,6 +113,7 @@ func save_game() -> void:
 		"coins": coins, "xp": xp, "char_level": char_level,
 		"highest_level": highest_level, "inventory": inventory,
 		"purchase_counts": purchase_counts,
+		"music_on": music_on, "sfx_on": sfx_on,
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
@@ -121,3 +137,5 @@ func load_game() -> void:
 	highest_level = int(parsed.get("highest_level", highest_level))
 	inventory = parsed.get("inventory", {})
 	purchase_counts = parsed.get("purchase_counts", {})
+	music_on = bool(parsed.get("music_on", true))
+	sfx_on = bool(parsed.get("sfx_on", true))

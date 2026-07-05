@@ -9,13 +9,33 @@ var battle: Node
 func _draw() -> void:
 	if battle == null:
 		return
-	# gate marker
-	var g: Vector2 = battle.gate_pos
-	draw_circle(g, 32.0, Color(0.2, 0.3, 0.72))
-	draw_arc(g, 32.0, 0.0, TAU, 28, Color(0.85, 0.92, 1.0), 3.0)
-
+	_draw_gate(battle.gate_pos)
 	if battle.mode == battle.MODE_PREVIEW or battle.mode == battle.MODE_AIM:
 		_draw_ghost()
+
+
+func _draw_gate(g: Vector2) -> void:
+	# a stone keep the orcs are trying to breach, with a HP bar above it
+	var tex: Texture2D = Assets.tex("gate")
+	if tex != null:
+		var s := 72.0
+		# subtle base shadow
+		draw_circle(g + Vector2(0, 6), s * 0.5, Color(0, 0, 0, 0.25))
+		draw_texture_rect(tex, Rect2(g - Vector2(s, s) * 0.5, Vector2(s, s)), false)
+		# two flanking blocks for a "fortress gate" silhouette
+		draw_texture_rect(tex, Rect2(g + Vector2(-s * 0.85, -s * 0.2), Vector2(s * 0.6, s * 0.6)), false)
+		draw_texture_rect(tex, Rect2(g + Vector2(s * 0.25, -s * 0.2), Vector2(s * 0.6, s * 0.6)), false)
+	else:
+		draw_circle(g, 34.0, Color(0.45, 0.42, 0.5))
+	# HP bar
+	var maxhp: float = battle.GATE_HP_MAX
+	var pct: float = clamp(float(battle.gate_hp) / maxhp, 0.0, 1.0)
+	var bw := 96.0
+	var by := -70.0
+	draw_rect(Rect2(g.x - bw * 0.5, g.y + by, bw, 12.0), Color(0, 0, 0, 0.7))
+	var col := Color(0.3, 0.8, 0.35) if pct > 0.5 else (Color(0.9, 0.75, 0.2) if pct > 0.25 else Color(0.9, 0.25, 0.2))
+	draw_rect(Rect2(g.x - bw * 0.5, g.y + by, bw * pct, 12.0), col)
+	draw_rect(Rect2(g.x - bw * 0.5, g.y + by, bw, 12.0), Color(1, 1, 1, 0.5), false, 2.0)
 
 
 func _draw_ghost() -> void:

@@ -12,10 +12,15 @@ All sprite assets are sourced from free, CC0-licensed packs by **Kenney** (kenne
 **License:** CC0 (Public Domain)  
 **Used:** orc and boss creature sprites (16×16 characters).
 
+## Ground / decoration tiles
+Also from **Kenney Tower Defense (Top-Down)** (CC0): grass, sand, stone ground
+tiles, path tiles, bush/tree/rock decorations, and the stone gate block.
+
 ## Font
-**Baloo 2** by Ek Type (Google Fonts)  
+**Pixelify Sans** by Stefie Justprince (Google Fonts) — a readable pixel font
+chosen to match the pixel-art sprites.  
 **License:** OFL (SIL Open Font License)  
-**URL:** https://fonts.google.com/specimen/Baloo+2
+**URL:** https://fonts.google.com/specimen/Pixelify+Sans
 
 ---
 

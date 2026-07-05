@@ -1,1 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="24" fill="#2a5c2a"/><circle cx="64" cy="60" r="30" fill="#52ad42"/><circle cx="52" cy="54" r="5" fill="#0f2d0f"/><circle cx="76" cy="54" r="5" fill="#0f2d0f"/><path d="M46 74 q18 14 36 0" stroke="#0f2d0f" stroke-width="4" fill="none" stroke-linecap="round"/><rect x="30" y="96" width="68" height="12" rx="6" fill="#8a8a95"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="26" fill="#2a5c2a"/>
+  <rect x="6" y="6" width="116" height="116" rx="22" fill="none" stroke="#1c3d1c" stroke-width="4"/>
+  <!-- orc head -->
+  <circle cx="64" cy="60" r="34" fill="#5ab247"/>
+  <circle cx="64" cy="60" r="34" fill="none" stroke="#2f6a28" stroke-width="3"/>
+  <!-- eyes -->
+  <rect x="46" y="50" width="12" height="10" rx="2" fill="#12300f"/>
+  <rect x="70" y="50" width="12" height="10" rx="2" fill="#12300f"/>
+  <rect x="49" y="52" width="4" height="4" fill="#e33"/>
+  <rect x="73" y="52" width="4" height="4" fill="#e33"/>
+  <!-- tusks -->
+  <path d="M52 74 l-4 12 l6 -3 z" fill="#f2f0e0"/>
+  <path d="M76 74 l4 12 l-6 -3 z" fill="#f2f0e0"/>
+  <!-- crosshair target -->
+  <circle cx="64" cy="60" r="46" fill="none" stroke="#ffd24a" stroke-width="3" stroke-dasharray="10 8" opacity="0.9"/>
+</svg>

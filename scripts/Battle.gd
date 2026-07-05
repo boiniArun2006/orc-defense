@@ -4,10 +4,11 @@ extends Node2D
 ## pinch-to-zoom camera (visual only), and Victory/Defeat overlays.
 
 # ---- Gate / level tuning ----
-const GATE_HP_MAX := 50
+const GATE_HP_MAX := 100          # each leaked orc removes 5, so ~20 leaks = loss
+const ORC_GATE_DAMAGE := 5
 
 # ---- Horde tuning ----
-const BASE_WAVE_SIZE := 50        # orcs in the first wave of level 1
+const BASE_WAVE_SIZE := 65        # orcs in the first wave of level 1
 const WAVE_GROWTH := 1.8          # each wave ~1.8x the previous (feels like doubling)
 const LEVEL_SIZE_BONUS := 0.15    # +15% base horde per game level
 const MAX_ALIVE := 200            # concurrency cap: pause spawns above this (perf)
@@ -75,10 +76,14 @@ func _ready() -> void:
 	_configure_level()
 	for k in Game.inventory.keys():
 		deploy_left[k] = int(Game.inventory[k])
-	_build_path()
+	var map: Dictionary = MapData.get_for_level(level)
+	path_points = map["path"]
+	gate_pos = path_points[path_points.size() - 1]
 	# static textured map (drawn once, sits behind everything)
 	var ground := GroundLayer.new()
 	ground.battle = self
+	ground.biome = map["biome"]
+	ground.decos = map["decos"]
 	add_child(ground)
 	# per-frame overlay layer that also parents the units
 	world = BattleWorld.new()
@@ -102,16 +107,6 @@ func _setup_camera() -> void:
 	cam.enabled = true
 	world.add_child(cam)
 	cam.make_current()
-
-
-func _build_path() -> void:
-	# 1280x720 landscape base; snaking left-to-right into the gate.
-	path_points = PackedVector2Array([
-		Vector2(-40, 140), Vector2(300, 140), Vector2(300, 560),
-		Vector2(640, 560), Vector2(640, 180), Vector2(980, 180),
-		Vector2(980, 520), Vector2(1180, 520),
-	])
-	gate_pos = path_points[path_points.size() - 1]
 
 
 # ================= Waves =================
@@ -156,7 +151,7 @@ func _end_wave() -> void:
 	wave_active = false
 	between_timer = 4.0
 	Game.add_xp(6 + level)
-	Game.add_coins(20 + level * 4)
+	Game.add_coins(5 + level)              # trimmed wave bonus
 	if wave >= waves_total:
 		_victory()
 
@@ -169,16 +164,16 @@ func _spawn_one() -> void:
 		e.is_boss = true
 		e.speed = 40.0 + level
 		e.max_hp = 900.0 + level * 160.0
-		e.coin_reward = 80 + level * 6
+		e.coin_reward = 30 + level * 2
 		e.xp_reward = 40 + level * 3
-		e.gate_damage = 10
+		e.gate_damage = 25             # a boss breaching hurts a lot
 	else:
 		# lots of weaker orcs — die to sustained fire, not one shot
 		e.speed = 55.0 + level * 2.0
 		e.max_hp = 18.0 + level * 6.0 + wave * 3.0
-		e.coin_reward = 2
+		e.coin_reward = 1              # earn turrets, don't drown in gold
 		e.xp_reward = 1
-		e.gate_damage = 1
+		e.gate_damage = ORC_GATE_DAMAGE
 	e.hp = e.max_hp
 	e.died.connect(_on_enemy_died)
 	e.reached_gate.connect(_on_enemy_reached_gate)
@@ -193,6 +188,7 @@ func _on_enemy_died(coins: int, xp: int) -> void:
 
 func _on_enemy_reached_gate(dmg: int) -> void:
 	gate_hp -= dmg
+	world.queue_redraw()       # refresh the gate HP bar
 	if gate_hp <= 0:
 		gate_hp = 0
 		_defeat()
