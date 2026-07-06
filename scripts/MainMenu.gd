@@ -124,8 +124,9 @@ func _menu_button(text: String, scene: String, size: Vector2) -> Button:
 
 
 func _refresh() -> void:
-	lbl_stats.text = "%d      Character Lv %d    XP %d/%d" % [
-		Game.coins, Game.char_level, Game.xp_into_level(), Game.xp_for_next_level()]
+	lbl_stats.text = "%d coin   %d gem   %d orb   %d cube    Lv %d    XP %d/%d" % [
+		Game.coins, Game.gems, Game.orbs, Game.cubes,
+		Game.char_level, Game.xp_into_level(), Game.xp_for_next_level()]
 
 
 ## Simple painted hills + sky glow so the title screen has depth without art.

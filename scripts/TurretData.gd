@@ -28,7 +28,7 @@ const ORDER := ["rifle", "smg", "mgun", "sniper", "bomber"]
 const DATA := {
 	"rifle": {
 		"name": "Rifle", "unlock_level": 1, "base_cost": 60, "cost_growth": 1.22,
-		"range": 200.0, "fire_rate": 0.28, "damage": 13.0, "bullet_speed": 620.0,
+		"range": 200.0, "fire_rate": 0.45, "damage": 13.0, "bullet_speed": 620.0,
 		"kind": "gun", "can_tap": false, "blast_radius": 0.0,
 		"base": "base_a", "gun": "gun_rifle", "turn_speed": 6.0,
 		"color": Color(0.55, 0.75, 0.95),
@@ -36,7 +36,7 @@ const DATA := {
 	},
 	"smg": {
 		"name": "SMG", "unlock_level": 4, "base_cost": 110, "cost_growth": 1.26,
-		"range": 140.0, "fire_rate": 0.05, "damage": 3.5, "bullet_speed": 740.0,
+		"range": 140.0, "fire_rate": 0.11, "damage": 3.5, "bullet_speed": 740.0,
 		"kind": "gun", "can_tap": false, "blast_radius": 0.0,
 		"base": "base_c", "gun": "gun_smg", "turn_speed": 8.0,
 		"color": Color(0.7, 0.9, 0.5),
@@ -44,7 +44,7 @@ const DATA := {
 	},
 	"mgun": {
 		"name": "Machine Gun", "unlock_level": 8, "base_cost": 170, "cost_growth": 1.28,
-		"range": 185.0, "fire_rate": 0.09, "damage": 6.0, "bullet_speed": 700.0,
+		"range": 185.0, "fire_rate": 0.18, "damage": 6.0, "bullet_speed": 700.0,
 		"kind": "gun", "can_tap": false, "blast_radius": 0.0,
 		"base": "base_b", "gun": "gun_mgun", "turn_speed": 5.0,
 		"color": Color(0.95, 0.7, 0.35),
@@ -52,7 +52,7 @@ const DATA := {
 	},
 	"sniper": {
 		"name": "Sniper", "unlock_level": 13, "base_cost": 280, "cost_growth": 1.32,
-		"range": 360.0, "fire_rate": 0.9, "damage": 75.0, "bullet_speed": 1100.0,
+		"range": 360.0, "fire_rate": 1.1, "damage": 75.0, "bullet_speed": 1100.0,
 		"kind": "gun", "can_tap": true, "blast_radius": 0.0,
 		"base": "base_a", "gun": "gun_sniper", "turn_speed": 3.2,
 		"color": Color(0.85, 0.5, 0.85),

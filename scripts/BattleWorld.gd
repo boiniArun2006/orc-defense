@@ -7,6 +7,10 @@ extends Node2D
 var battle: Node
 
 
+func _ready() -> void:
+	z_index = 8               # gate marker + placement ghost draw ABOVE the orc swarm (z=5)
+
+
 func _draw() -> void:
 	if battle == null:
 		return

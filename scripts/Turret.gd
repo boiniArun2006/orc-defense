@@ -46,6 +46,7 @@ func setup(t_id: String) -> void:
 	blast_radius = def["blast_radius"]
 	turn_speed = def.get("turn_speed", 6.0)
 	_facing = aim_angle
+	z_index = 10                     # draw ABOVE the orc swarm (z=5)
 	_base_spr = Sprite2D.new()
 	_base_spr.texture = Assets.tex(def["base"])
 	_base_spr.scale = Vector2(0.72, 0.72)
@@ -68,9 +69,9 @@ func upgrade() -> void:
 	if lvl >= MAX_LVL:
 		return
 	lvl += 1
-	damage *= 1.3
+	damage *= 1.35
 	range_px *= 1.1
-	fire_rate = max(0.03, fire_rate * 0.93)
+	fire_rate = max(0.03, fire_rate * 0.72)   # noticeably faster fire per upgrade
 	queue_redraw()
 
 

@@ -16,6 +16,14 @@ var xp := 0
 var char_level := 1
 var highest_level := 1                 # highest GAME level unlocked/reached
 
+# --- Meta currencies (persist across battles, spent in the Skill Tree) ---
+# gems  : blue stones, dropped by killing orcs (the bulk currency)
+# orbs  : orange stone-balls, one per LEVEL completed
+# cubes : pink cubes, one per BOSS defeated (rare, big-ticket unlocks)
+var gems := 0
+var orbs := 0
+var cubes := 0
+
 var inventory := {}                    # type_id -> count owned (deployable)
 var purchase_counts := {}              # type_id -> times bought (price growth)
 
@@ -50,6 +58,9 @@ func reset_progress() -> void:
 	highest_level = 1
 	inventory = {"rifle": 3}
 	purchase_counts = {}
+	gems = 0
+	orbs = 0
+	cubes = 0
 	save_game()
 	emit_changed()
 
@@ -114,6 +125,22 @@ func add_coins(amount: int) -> void:
 	emit_changed()
 
 
+# --- Meta currency earners (see var declarations for what each represents) ---
+func add_gems(amount: int) -> void:
+	gems += amount
+	emit_changed()
+
+
+func add_orbs(amount: int) -> void:
+	orbs += amount
+	emit_changed()
+
+
+func add_cubes(amount: int) -> void:
+	cubes += amount
+	emit_changed()
+
+
 func emit_changed() -> void:
 	changed.emit()
 
@@ -124,6 +151,7 @@ func save_game() -> void:
 		"coins": coins, "xp": xp, "char_level": char_level,
 		"highest_level": highest_level, "inventory": inventory,
 		"purchase_counts": purchase_counts,
+		"gems": gems, "orbs": orbs, "cubes": cubes,
 		"music_on": music_on, "sfx_on": sfx_on,
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -148,5 +176,8 @@ func load_game() -> void:
 	highest_level = int(parsed.get("highest_level", highest_level))
 	inventory = parsed.get("inventory", {})
 	purchase_counts = parsed.get("purchase_counts", {})
+	gems = int(parsed.get("gems", 0))
+	orbs = int(parsed.get("orbs", 0))
+	cubes = int(parsed.get("cubes", 0))
 	music_on = bool(parsed.get("music_on", true))
 	sfx_on = bool(parsed.get("sfx_on", true))

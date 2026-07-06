@@ -78,8 +78,9 @@ func spawn(type_name: String, level: int, wave: int, width: float) -> void:
 		ti = 0
 		type_name = "orc"
 	var d: Dictionary = TYPES[type_name]
-	var base_hp := 14.0 + level * 4.0 + wave * 2.0
-	var hp: float = (900.0 + level * 200.0) if type_name == "boss" else base_hp * float(d["hp"])
+	# basic orcs are fodder: one bullet = one kill. They win by sheer numbers.
+	var base_hp := 4.0 + level * 1.5 + wave * 1.0
+	var hp: float = (1200.0 + level * 260.0) if type_name == "boss" else base_hp * float(d["hp"])
 	var spd: float = (46.0 + level) if type_name == "boss" else (50.0 + level * 2.0) * float(d["spd"])
 	var lat: float = 0.0 if type_name == "boss" else randf_range(-width, width) * 0.5
 
@@ -245,54 +246,43 @@ func _draw() -> void:
 
 
 func _draw_orc(i: int) -> void:
+	# TOP-DOWN orc: round green body, a dark mohawk stripe running front-to-back
+	# along travel direction, and two red eyes at the front. Small and packable.
 	var tname: String = TYPE_ORDER[_type[i]]
 	var d: Dictionary = TYPES[tname]
 	var r: float = d["r"]
 	var p: Vector2 = _pos[i]
-	var bob := sin(_anim * 9.0 + float(i) * 0.7) * (r * 0.12)
-	var c := p + Vector2(0, bob)
-	var face := -1.0 if _flip[i] == 1 else 1.0
+	# heading = current path-segment direction (front of the orc)
+	var seg: int = min(_seg[i], _seg_dir.size() - 1) if _seg_dir.size() > 0 else 0
+	var fwd: Vector2 = _seg_dir[seg] if _seg_dir.size() > 0 else Vector2.RIGHT
+	var side := fwd.orthogonal()
+	var bob := sin(_anim * 9.0 + float(i) * 0.7) * (r * 0.10)
+	var c := p + side * bob
 	var body: Color = d["body"]
 	var f: float = _flash[i]
 	if f > 0.0:
 		body = body.lerp(Color(1, 1, 1), clamp(f / 0.12, 0.0, 1.0))
-	var dark := body.darkened(0.4)
-
-	# shadow on the ground
-	draw_circle(p + Vector2(0, r * 0.55), r * 0.7, Color(0, 0, 0, 0.18))
 
 	if tname == "skeleton":
-		# bony: pale round skull + eye sockets
-		draw_circle(c, r, body)
-		draw_circle(c, r, dark)  # rim
-		draw_circle(c, r * 0.85, body)
-		draw_circle(c + Vector2(-r * 0.32 * face, -r * 0.1), r * 0.16, Color(0.1, 0.1, 0.12))
-		draw_circle(c + Vector2(r * 0.18 * face, -r * 0.1), r * 0.16, Color(0.1, 0.1, 0.12))
+		draw_circle(c, r, Color(0.55, 0.58, 0.55))       # bone rim
+		draw_circle(c, r * 0.82, body)                    # pale skull
+		draw_circle(c + fwd * r * 0.28 - side * r * 0.3, r * 0.14, Color(0.1, 0.1, 0.12))
+		draw_circle(c + fwd * r * 0.28 + side * r * 0.3, r * 0.14, Color(0.1, 0.1, 0.12))
 		return
 
-	# orc-like body: rounded torso, darker rim, two eyes, two tusks
-	draw_circle(c, r, dark)                    # outline ring
-	draw_circle(c, r * 0.88, body)             # body
-	# little pointy ears
-	draw_colored_polygon(PackedVector2Array([
-		c + Vector2(-r * 0.9 * face, -r * 0.1), c + Vector2(-r * 1.25 * face, -r * 0.5),
-		c + Vector2(-r * 0.6 * face, -r * 0.55)]), body)
-	draw_colored_polygon(PackedVector2Array([
-		c + Vector2(r * 0.9 * face, -r * 0.1), c + Vector2(r * 1.25 * face, -r * 0.5),
-		c + Vector2(r * 0.6 * face, -r * 0.55)]), body)
-	# eyes
-	var eye := Color(0.95, 0.9, 0.2) if tname != "boss" else Color(1, 0.9, 0.3)
-	draw_circle(c + Vector2(-r * 0.32, -r * 0.12), r * 0.16, Color(0.05, 0.1, 0.05))
-	draw_circle(c + Vector2(r * 0.32, -r * 0.12), r * 0.16, Color(0.05, 0.1, 0.05))
-	draw_circle(c + Vector2(-r * 0.32, -r * 0.12), r * 0.08, eye)
-	draw_circle(c + Vector2(r * 0.32, -r * 0.12), r * 0.08, eye)
-	# tusks
-	draw_colored_polygon(PackedVector2Array([
-		c + Vector2(-r * 0.28, r * 0.35), c + Vector2(-r * 0.16, r * 0.72),
-		c + Vector2(-r * 0.05, r * 0.35)]), Color(0.95, 0.95, 0.85))
-	draw_colored_polygon(PackedVector2Array([
-		c + Vector2(r * 0.28, r * 0.35), c + Vector2(r * 0.16, r * 0.72),
-		c + Vector2(r * 0.05, r * 0.35)]), Color(0.95, 0.95, 0.85))
-	# armor pip for armored/brute types
+	# body
+	draw_circle(c, r, body.darkened(0.45))               # rim
+	draw_circle(c, r * 0.86, body)                        # torso/head
+	# mohawk: dark stripe down the middle along the heading
+	var mo := body.darkened(0.55)
+	draw_line(c - fwd * r * 0.7, c + fwd * r * 0.55, mo, r * 0.34)
+	# two red eyes near the front
+	var ep := c + fwd * r * 0.45
+	draw_circle(ep - side * r * 0.28, r * 0.15, Color(0.85, 0.1, 0.1))
+	draw_circle(ep + side * r * 0.28, r * 0.15, Color(0.85, 0.1, 0.1))
+	# brute/armored ring
 	if d["armor"] >= 4.0:
-		draw_arc(c, r * 1.05, -0.9, 0.9, 8, Color(0.7, 0.75, 0.85, 0.9), 2.5)
+		draw_arc(c, r * 1.02, 0.0, TAU, 12, Color(0.7, 0.75, 0.85, 0.8), 2.0)
+	# boss crown
+	if tname == "boss":
+		draw_arc(c, r * 1.1, 0.0, TAU, 24, Color(1, 0.85, 0.2, 0.9), 4.0)

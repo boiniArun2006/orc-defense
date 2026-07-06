@@ -11,9 +11,9 @@ const ORC_GATE_DAMAGE := 5
 # ---- Horde tuning ----
 # More waves per level with steady growth: mid-game levels are meant to be HARD.
 # The player is supposed to lose sometimes and come back with a better plan.
-const BASE_WAVE_SIZE := 120       # orcs in the first wave of level 1 (a real horde now)
+const BASE_WAVE_SIZE := 240       # ~240-360 orcs on level 1, like the reference
 const WAVE_GROWTH := 1.5          # each wave ~1.5x the previous
-const LEVEL_SIZE_BONUS := 0.20    # +20% base horde per game level
+const LEVEL_SIZE_BONUS := 0.35    # +35% base horde per game level -> 5k-10k+ later
 const MAX_ALIVE := 1500           # data-oriented swarm handles thousands; cap for phone safety
 const MAX_WAVES := 9
 
@@ -89,7 +89,10 @@ var sel_turret: Turret = null    # turret selected for in-battle upgrade
 var ui: CanvasLayer
 var lbl_level: Label
 var lbl_coins: Label
+var lbl_gems: Label
 var lbl_wave: Label
+var _gems_run := 0                       # gems earned THIS battle (for victory tally)
+var _cubes_run := 0                      # bosses slain this battle
 var gate_bar: ProgressBar
 var msg_panel: PanelContainer
 var lbl_msg: Label
@@ -233,7 +236,11 @@ func _spawn_one() -> void:
 func _on_orc_died(coins: int, xp: int, is_boss: bool) -> void:
 	Game.add_coins(coins)
 	Game.add_xp(xp)
+	Game.add_gems(coins)             # blue stones: bulk meta currency from kills
+	_gems_run += coins
 	if is_boss:
+		Game.add_cubes(1)            # pink cube: one per boss slain
+		_cubes_run += 1
 		shake(8.0)
 
 
@@ -520,6 +527,24 @@ func _build_ui() -> void:
 	lbl_coins.add_theme_color_override("font_color", Color(0.98, 0.86, 0.42))
 	row.add_child(lbl_coins)
 
+	# blue gem counter (meta currency dropped by kills) — diamond drawn as a
+	# 45°-rotated square so we need no texture asset
+	var gem_icon := ColorRect.new()
+	gem_icon.color = Color(0.35, 0.7, 1.0)
+	gem_icon.custom_minimum_size = Vector2(22, 22)
+	gem_icon.pivot_offset = Vector2(11, 11)
+	gem_icon.rotation = PI / 4.0
+	var gem_holder := Control.new()
+	gem_holder.custom_minimum_size = Vector2(32, 32)
+	gem_icon.position = Vector2(5, 5)
+	gem_holder.add_child(gem_icon)
+	row.add_child(gem_holder)
+
+	lbl_gems = Label.new()
+	lbl_gems.add_theme_font_size_override("font_size", 28)
+	lbl_gems.add_theme_color_override("font_color", Color(0.6, 0.85, 1.0))
+	row.add_child(lbl_gems)
+
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(spacer)
@@ -680,6 +705,7 @@ func _update_top() -> void:
 		status = "Wave %d/%d    Orcs: %s" % [wave, waves_total, _fmt_k(remaining)]
 	lbl_level.text = ("LV %d  BOSS" % level) if boss_wave else ("LV %d" % level)
 	lbl_coins.text = str(Game.coins)
+	lbl_gems.text = str(Game.gems)
 	lbl_wave.text = status
 	gate_bar.value = gate_hp
 	var fill: StyleBoxFlat = gate_bar.get_theme_stylebox("fill")
@@ -704,9 +730,13 @@ func _victory() -> void:
 	finished = true
 	Game.add_xp(15 + level * 3)
 	Game.add_coins(18 + level * 3)
+	Game.add_orbs(1)                 # orange stone-ball: one per level cleared
 	Game.highest_level = max(Game.highest_level, level + 1)
 	Game.save_game()
-	_show_overlay("VICTORY!", "Level %d cleared" % level, "Next Level", "res://scenes/Battle.tscn")
+	var tally := "Level %d cleared\n+%d gems  +1 orb" % [level, _gems_run]
+	if _cubes_run > 0:
+		tally += "  +%d cube" % _cubes_run
+	_show_overlay("VICTORY!", tally, "Next Level", "res://scenes/Battle.tscn")
 
 
 func _fmt_k(n: int) -> String:

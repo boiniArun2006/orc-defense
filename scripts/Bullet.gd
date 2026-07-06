@@ -15,6 +15,10 @@ var _life := 0.0
 const MAX_LIFE := 3.0
 
 
+func _ready() -> void:
+	z_index = 10             # tracers draw above the orc swarm
+
+
 func _process(delta: float) -> void:
 	_life += delta
 	if _life > MAX_LIFE:
