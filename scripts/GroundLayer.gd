@@ -111,24 +111,33 @@ func _draw_road() -> void:
 	var pts: PackedVector2Array = battle.path_points
 	if pts.size() < 2:
 		return
+	var w: float = battle.path_width      # wide corridor the horde floods through
+	var half := w * 0.5
+	var tile := w * 0.55
 	# soft dark shoulder so the road sits INTO the ground
-	draw_polyline(pts, Color(0, 0, 0, 0.22), 62.0)
-	# stamped path tiles for texture
+	draw_polyline(pts, Color(0, 0, 0, 0.22), w + 8.0)
+	# stamped path tiles for texture, laid in rows across the full width
 	if _path != null:
 		for i in range(pts.size() - 1):
 			var a := pts[i]
 			var b := pts[i + 1]
-			var n := int(a.distance_to(b) / 22.0) + 1
+			var perp := (b - a).normalized().orthogonal()
+			var n := int(a.distance_to(b) / (tile * 0.5)) + 1
 			for j in range(n + 1):
-				var p: Vector2 = a.lerp(b, float(j) / n)
-				draw_texture_rect(_path, Rect2(p - Vector2(26, 26), Vector2(52, 52)), false)
-	# worn centerline: countless orc feet have beaten this track
-	draw_polyline(pts, Color(0, 0, 0, 0.10), 14.0)
+				var c: Vector2 = a.lerp(b, float(j) / n)
+				# lay 2-3 tiles across the corridor width
+				var lanes := int(w / tile) + 1
+				for k in range(lanes + 1):
+					var off := lerpf(-half, half, float(k) / lanes)
+					var p := c + perp * off
+					draw_texture_rect(_path, Rect2(p - Vector2(tile, tile) * 0.5, Vector2(tile, tile)), false)
+	# worn centerline
+	draw_polyline(pts, Color(0, 0, 0, 0.10), w * 0.3)
 	# crisp edge strokes give the road definition
 	for i in range(pts.size() - 1):
 		var a := pts[i]
 		var b := pts[i + 1]
-		var perp := (b - a).normalized().orthogonal() * 27.0
+		var perp := (b - a).normalized().orthogonal() * half
 		draw_line(a + perp, b + perp, Color(0.1, 0.07, 0.04, 0.35), 3.0)
 		draw_line(a - perp, b - perp, Color(0.1, 0.07, 0.04, 0.35), 3.0)
 

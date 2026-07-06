@@ -11,10 +11,10 @@ const ORC_GATE_DAMAGE := 5
 # ---- Horde tuning ----
 # More waves per level with steady growth: mid-game levels are meant to be HARD.
 # The player is supposed to lose sometimes and come back with a better plan.
-const BASE_WAVE_SIZE := 40        # orcs in the first wave of level 1
-const WAVE_GROWTH := 1.45         # each wave ~1.45x the previous
-const LEVEL_SIZE_BONUS := 0.18    # +18% base horde per game level
-const MAX_ALIVE := 200            # concurrency cap: pause spawns above this (perf)
+const BASE_WAVE_SIZE := 120       # orcs in the first wave of level 1 (a real horde now)
+const WAVE_GROWTH := 1.5          # each wave ~1.5x the previous
+const LEVEL_SIZE_BONUS := 0.20    # +20% base horde per game level
+const MAX_ALIVE := 1500           # data-oriented swarm handles thousands; cap for phone safety
 const MAX_WAVES := 9
 
 # Placement flow states
@@ -53,8 +53,9 @@ var boss_wave := false
 var finished := false            # victory or defeat reached
 
 var path_points: PackedVector2Array
+var path_width := 110.0
 var gate_pos: Vector2
-var enemies: Array = []
+var swarm: OrcSwarm
 
 # How many of each turret the player can still deploy THIS battle. A local copy of
 # Game.inventory so deploying doesn't permanently consume the owned roster.
@@ -108,6 +109,7 @@ func _ready() -> void:
 		deploy_left[k] = int(Game.inventory[k])
 	var map: Dictionary = MapData.get_for_level(level)
 	path_points = map["path"]
+	path_width = map.get("path_width", 110.0)
 	gate_pos = path_points[path_points.size() - 1]
 	# static textured map (drawn once, sits behind everything)
 	var ground := GroundLayer.new()
@@ -120,7 +122,12 @@ func _ready() -> void:
 	# gore layer: corpses/blood/damage numbers, above ground, below units
 	gore = GoreLayer.new()
 	add_child(gore)
-	# per-frame overlay layer that also parents the units
+	# the horde: data-oriented swarm (thousands of orcs, one draw call per type)
+	swarm = OrcSwarm.new()
+	swarm.battle = self
+	add_child(swarm)
+	swarm.setup(path_points)
+	# per-frame overlay layer that also parents the units (turrets draw above orcs)
 	world = BattleWorld.new()
 	world.battle = self
 	add_child(world)
@@ -145,18 +152,17 @@ func _setup_camera() -> void:
 
 # ================= Waves =================
 func _process(delta: float) -> void:
-	enemies = enemies.filter(func(e): return is_instance_valid(e))
 	if not finished:
 		if wave_active:
 			if spawned < to_spawn:
 				# concurrency cap: hold spawns while the field is full (protects FPS)
-				if enemies.size() < MAX_ALIVE:
+				if swarm.alive_count() < MAX_ALIVE:
 					spawn_timer -= delta
 					if spawn_timer <= 0.0:
 						_spawn_one()
 						spawned += 1
 						spawn_timer = spawn_interval
-			elif enemies.is_empty():
+			elif swarm.alive_count() == 0:
 				_end_wave()
 		else:
 			between_timer -= delta
@@ -184,7 +190,7 @@ func _start_wave() -> void:
 	var level_base: float = BASE_WAVE_SIZE * (1.0 + LEVEL_SIZE_BONUS * (level - 1))
 	to_spawn = int(round(level_base * pow(WAVE_GROWTH, wave - 1)))
 	# fast trickle so many are on screen at once (clamped, subject to MAX_ALIVE gate)
-	spawn_interval = max(0.05, 0.16 - level * 0.008)
+	spawn_interval = max(0.015, 0.05 - level * 0.003)   # fast trickle: flood the path
 	spawn_timer = 0.0
 	_flash("HORDE INCOMING!")
 
@@ -201,68 +207,43 @@ func _end_wave() -> void:
 
 
 func _spawn_one() -> void:
-	var e := Enemy.new()
-	e.path = path_points
 	var is_last_wave_boss: bool = boss_wave and wave == waves_total and spawned == to_spawn - 1
 	if is_last_wave_boss:
-		e.is_boss = true
-		e.speed = 40.0 + level
-		e.max_hp = 900.0 + level * 220.0
-		e.armor = 2.0 + level * 0.2
-		e.coin_reward = 25 + level * 2
-		e.xp_reward = 40 + level * 3
-		e.gate_damage = 25             # a boss breaching hurts a lot
-	else:
-		# the standard horde: lots of weak orcs that die to sustained fire —
-		# spiced with variants that punish a one-note turret layout
-		var roll := randf()
-		var runner_chance: float = 0.0 if level < 3 else minf(0.28, 0.08 + 0.02 * level)
-		var brute_chance: float = 0.0 if level < 6 else minf(0.18, 0.03 + 0.012 * level)
-		if roll < brute_chance:
-			e.variant = "brute"
-			e.speed = 34.0 + level * 1.2
-			e.max_hp = (30.0 + 9.0 * level + 5.0 * wave) * 3.4
-			e.armor = 3.0 + level * 0.25
-			e.coin_reward = 3
-			e.xp_reward = 3
-			e.gate_damage = 10
-		elif roll < brute_chance + runner_chance:
-			e.variant = "runner"
-			e.speed = (60.0 + level * 3.0) * 1.8
-			e.max_hp = (30.0 + 9.0 * level + 5.0 * wave) * 0.5
-			e.coin_reward = 1
-			e.xp_reward = 1
-			e.gate_damage = ORC_GATE_DAMAGE
-		else:
-			e.speed = 60.0 + level * 3.0
-			e.max_hp = 26.0 + 9.0 * level + 5.0 * wave
-			e.coin_reward = 1              # earn turrets, don't drown in gold
-			e.xp_reward = 1
-			e.gate_damage = ORC_GATE_DAMAGE
-	e.hp = e.max_hp
-	e.battle = self
-	e.died.connect(_on_enemy_died.bind(e))
-	e.reached_gate.connect(_on_enemy_reached_gate)
-	world.add_child(e)
-	enemies.append(e)
+		swarm.spawn("boss", level, wave, path_width)
+		return
+	# the standard flood: mostly weak orcs, spiced with variants that punish a
+	# one-note turret layout. Chances grow with level.
+	var roll := randf()
+	var runner_chance: float = 0.0 if level < 3 else minf(0.28, 0.08 + 0.02 * level)
+	var brute_chance: float = 0.0 if level < 6 else minf(0.18, 0.03 + 0.012 * level)
+	var skel_chance: float = 0.0 if level < 4 else minf(0.22, 0.05 + 0.015 * level)
+	var t := "orc"
+	if roll < brute_chance:
+		t = "brute"
+	elif roll < brute_chance + runner_chance:
+		t = "runner"
+	elif roll < brute_chance + runner_chance + skel_chance:
+		t = "skeleton"
+	elif randf() < 0.30:
+		t = "slime"
+	swarm.spawn(t, level, wave, path_width)
 
 
-func _on_enemy_died(coins: int, xp: int, e: Enemy) -> void:
+# Called by OrcSwarm when an orc dies (corpse/blood already spawned by the swarm).
+func _on_orc_died(coins: int, xp: int, is_boss: bool) -> void:
 	Game.add_coins(coins)
 	Game.add_xp(xp)
-	if is_instance_valid(e):
-		gore.add_corpse(e.position, e.is_boss)
-		if e.is_boss:
-			shake(8.0)
+	if is_boss:
+		shake(8.0)
 
 
 func shake(amount: float) -> void:
 	_shake = max(_shake, amount)
 
 
-func _on_enemy_reached_gate(dmg: int) -> void:
+# Called by OrcSwarm when an orc reaches the gate.
+func _on_gate_hit(dmg: int) -> void:
 	gate_hp -= dmg
-	world.queue_redraw()       # refresh the gate HP bar
 	if gate_hp <= 0:
 		gate_hp = 0
 		_defeat()
@@ -695,8 +676,8 @@ func _update_top() -> void:
 	if not wave_active:
 		status = "Wave %d in %.0fs — PLACE TURRETS" % [wave + 1, ceil(between_timer)]
 	else:
-		var remaining: int = (to_spawn - spawned) + enemies.size()
-		status = "Wave %d/%d    Orcs left: %d" % [wave, waves_total, remaining]
+		var remaining: int = (to_spawn - spawned) + swarm.alive_count()
+		status = "Wave %d/%d    Orcs: %s" % [wave, waves_total, _fmt_k(remaining)]
 	lbl_level.text = ("LV %d  BOSS" % level) if boss_wave else ("LV %d" % level)
 	lbl_coins.text = str(Game.coins)
 	lbl_wave.text = status
@@ -728,12 +709,14 @@ func _victory() -> void:
 	_show_overlay("VICTORY!", "Level %d cleared" % level, "Next Level", "res://scenes/Battle.tscn")
 
 
+func _fmt_k(n: int) -> String:
+	return "%.1fK" % (n / 1000.0) if n >= 1000 else str(n)
+
+
 func _defeat() -> void:
 	finished = true
-	for e in enemies:
-		if is_instance_valid(e):
-			e.queue_free()
-	enemies.clear()
+	if swarm:
+		swarm.queue_free()
 	# lose-but-earn: modest salvage so a failed run still makes SOME progress,
 	# but losing must sting enough that the player rethinks the layout
 	var salvage_coins := 4 + level + wave * 2

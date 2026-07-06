@@ -46,9 +46,10 @@ func _process(delta: float) -> void:
 
 
 func _explode(at: Vector2) -> void:
-	for e in battle.enemies:
-		if is_instance_valid(e) and e.position.distance_to(at) <= blast_radius:
-			e.take_damage(damage)
+	var swarm = battle.swarm
+	if swarm != null:
+		for idx in swarm.query_radius(at, blast_radius):
+			swarm.damage(idx, damage)
 	var fx := BlastFX.new()
 	fx.position = at
 	fx.radius = blast_radius

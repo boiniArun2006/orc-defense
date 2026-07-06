@@ -4,7 +4,9 @@ extends Node2D
 ## elongated tracer streak (tinted per turret type) so gunfire reads as gunfire
 ## instead of little floating balls. Culled by a max lifetime.
 
-var target: Node2D
+var swarm: OrcSwarm             # the horde this round
+var ti := -1                    # target orc index
+var tg := -1                    # target generation
 var speed := 460.0
 var damage := 22.0
 var color := Color(1.0, 0.9, 0.5)
@@ -13,23 +15,20 @@ var _life := 0.0
 const MAX_LIFE := 3.0
 
 
-func _ready() -> void:
-	rotation = _dir.angle()
-
-
 func _process(delta: float) -> void:
 	_life += delta
 	if _life > MAX_LIFE:
 		queue_free()
 		return
-	if is_instance_valid(target):
-		var to_target: Vector2 = target.position - position
+	if swarm != null and swarm.is_alive(ti, tg):
+		var to_target: Vector2 = swarm.pos_of(ti) - position
 		var dist := to_target.length()
-		if dist < 12.0:
-			target.take_damage(damage)
+		if dist < 14.0:
+			swarm.damage(ti, damage)
 			queue_free()
 			return
 		_dir = to_target / dist
+	# no valid target (killed by someone else): keep flying straight, fade via lifetime
 	position += _dir * speed * delta
 	rotation = _dir.angle()
 

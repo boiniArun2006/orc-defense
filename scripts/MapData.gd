@@ -36,6 +36,7 @@ static func get_for_level(level: int) -> Dictionary:
 	return {
 		"path": path,
 		"biome": biome,
+		"path_width": 100.0 + float(idx % 4) * 16.0,   # wide corridors the horde floods
 		"decos": _decos(rng, path),
 		"ponds": _ponds(rng, path),
 		"tufts": _tufts(rng, path, biome),
