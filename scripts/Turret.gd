@@ -1,10 +1,10 @@
 class_name Turret
 extends Node2D
 ## A deployed turret built from two sprites: a static stone BASE and a GUN that
-## visibly turns to track whatever it is shooting. "gun" turrets fire straight
-## bullets and only engage orcs inside their aim arc (set at placement).
-## "bomb" turrets (bomber) lob an arcing missile with splash damage (no arc).
-## Snipers may be toggled to tap-fire instead of auto-fire.
+## visibly turns to track whatever it is shooting. All turrets track 360
+## degrees: they pick the closest orc in range, slew the barrel onto it and
+## open fire once the gun is actually pointing at the victim.
+## "bomb" turrets (bomber) lob an arcing missile with splash damage.
 
 var battle: Node                 # Battle reference (enemy list + add_child)
 var type_id := "rifle"
@@ -22,9 +22,7 @@ const MAX_LVL := 3
 const AIM_TOLERANCE := 0.22      # must be pointing this close (rad) to fire
 var lvl := 1                     # in-battle upgrade level (reset each battle)
 
-var aim_angle := 0.0             # arc center, radians (rest facing)
-var arc_half := deg_to_rad(60)   # half of the firing arc; full arc <= 120 deg
-var auto_fire := true            # sniper may set this false (tap-fire)
+var aim_angle := 0.0             # rest facing (radians) when no target
 
 var _cooldown := 0.0
 var _muzzle := 0.0               # muzzle-flash timer
@@ -84,49 +82,31 @@ func _process(delta: float) -> void:
 		_recoil = max(0.0, _recoil - delta * 26.0)
 
 	# keep (or re-)acquire the target this gun is tracking
+	if not is_instance_valid(_target):
+		_target = null   # victim was freed (killed) — drop the stale reference
 	if not _is_valid_target(_target):
 		_target = _acquire()
 
 	# the gun visibly slews toward its target; with no target it settles back
 	# to the arc center (guns) or just holds (bomber)
-	var desired := _facing
+	var desired := aim_angle
 	if _target != null:
 		desired = (_target.position - position).angle()
-	elif kind == "gun":
-		desired = aim_angle
 	_facing = rotate_toward(_facing, desired, turn_speed * delta)
 	if _gun_spr:
 		_gun_spr.rotation = _facing + PI / 2.0
 		_gun_spr.position = Vector2(-_recoil, 0).rotated(_facing)
 
-	# Bombers and auto-fire guns shoot on their own. Tap-fire guns wait for tap.
-	if kind == "gun" and not auto_fire:
-		return
 	if _cooldown <= 0.0 and _target != null:
 		# only fire once the barrel is actually pointing at the victim
 		if absf(wrapf(desired - _facing, -PI, PI)) <= AIM_TOLERANCE:
 			_fire_at(_target)
 
 
-func tap_fire() -> void:
-	# Called by Battle when the player taps a tap-fire turret.
-	if _cooldown > 0.0:
-		return
-	if not _is_valid_target(_target):
-		_target = _acquire()
-	if _target != null:
-		_fire_at(_target)
-
-
 func _is_valid_target(e: Node2D) -> bool:
 	if e == null or not is_instance_valid(e):
 		return false
-	var d: float = position.distance_to(e.position)
-	if d > range_px:
-		return false
-	if kind == "gun" and not _in_arc(e.position):
-		return false
-	return true
+	return position.distance_to(e.position) <= range_px
 
 
 func _acquire() -> Node2D:
@@ -138,18 +118,10 @@ func _acquire() -> Node2D:
 		var d: float = position.distance_to(e.position)
 		if d > range_px:
 			continue
-		if kind == "gun" and not _in_arc(e.position):
-			continue
 		if d <= best_d:
 			best_d = d
 			best = e
 	return best
-
-
-func _in_arc(world_pos: Vector2) -> bool:
-	var ang := (world_pos - position).angle()
-	var diff: float = abs(wrapf(ang - aim_angle, -PI, PI))
-	return diff <= arc_half
 
 
 func _fire_at(target: Node2D) -> void:
@@ -177,11 +149,7 @@ func _fire_at(target: Node2D) -> void:
 
 func _draw() -> void:
 	# range / arc overlay is drawn under the sprites; sprite children draw the body
-	var col: Color = def.get("color", Color(0.6, 0.6, 0.65))
-	if kind == "gun":
-		_draw_arc_region(col)
-	else:
-		draw_arc(Vector2.ZERO, range_px, 0.0, TAU, 44, Color(1, 1, 1, 0.06), 1.5)
+	draw_arc(Vector2.ZERO, range_px, 0.0, TAU, 44, Color(1, 1, 1, 0.06), 1.5)
 	# soft drop shadow under the base so the turret sits IN the world
 	draw_circle(Vector2(2, 4), 20.0, Color(0, 0, 0, 0.18))
 	# muzzle flash at the barrel tip when recently fired
@@ -194,16 +162,3 @@ func _draw() -> void:
 		draw_circle(Vector2(-6.0 + 12.0 * i, 24.0), 4.0, Color(1.0, 0.85, 0.2))
 		draw_arc(Vector2(-6.0 + 12.0 * i, 24.0), 4.0, 0.0, TAU, 10, Color(0, 0, 0, 0.8), 1.5)
 
-
-func _draw_arc_region(col: Color) -> void:
-	var steps := 26
-	var pts := PackedVector2Array()
-	pts.append(Vector2.ZERO)
-	var a0 := aim_angle - arc_half
-	var a1 := aim_angle + arc_half
-	for i in range(steps + 1):
-		var a: float = lerp(a0, a1, float(i) / steps)
-		pts.append(Vector2(range_px, 0).rotated(a))
-	draw_colored_polygon(pts, Color(col.r, col.g, col.b, 0.08))
-	draw_line(Vector2.ZERO, Vector2(range_px, 0).rotated(a0), Color(1, 1, 1, 0.14), 1.5)
-	draw_line(Vector2.ZERO, Vector2(range_px, 0).rotated(a1), Color(1, 1, 1, 0.14), 1.5)

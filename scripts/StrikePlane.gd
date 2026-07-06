@@ -42,13 +42,13 @@ func _ready() -> void:
 	_shadow.texture = Assets.tex("plane_shadow")
 	_shadow.modulate = Color(0, 0, 0, 0.30)
 	_shadow.position = Vector2(22, 34)
-	_shadow.rotation = _dir.angle() + PI / 2.0
+	_shadow.rotation = _dir.angle() + PI   # art points LEFT
 	_shadow.scale = Vector2(1.15, 1.15)
 	add_child(_shadow)
 
 	_spr = Sprite2D.new()
 	_spr.texture = Assets.tex("plane")
-	_spr.rotation = _dir.angle() + PI / 2.0   # art points up
+	_spr.rotation = _dir.angle() + PI   # art points LEFT
 	_spr.scale = Vector2(1.35, 1.35)
 	add_child(_spr)
 
@@ -60,7 +60,7 @@ func _process(delta: float) -> void:
 	# gentle banking wobble so the flight feels alive
 	_t += delta
 	var wob := sin(_t * 9.0) * 0.05
-	_spr.rotation = _dir.angle() + PI / 2.0 + wob
+	_spr.rotation = _dir.angle() + PI + wob
 	_shadow.rotation = _spr.rotation
 	# release bombs as we cross their drop distances
 	while _next_drop < _drop_at.size() and _travelled >= float(_drop_at[_next_drop]):

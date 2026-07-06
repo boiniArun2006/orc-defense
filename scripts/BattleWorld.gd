@@ -11,7 +11,7 @@ func _draw() -> void:
 	if battle == null:
 		return
 	_draw_gate(battle.gate_pos)
-	if battle.mode == battle.MODE_PREVIEW or battle.mode == battle.MODE_AIM:
+	if battle.mode == battle.MODE_PREVIEW:
 		_draw_ghost()
 	elif battle.mode == battle.MODE_STRIKE:
 		_draw_strike_preview()
@@ -58,16 +58,6 @@ func _draw_ghost() -> void:
 	if gun_t != null:
 		var gs := Vector2(gun_t.get_width(), gun_t.get_height()) * 0.62
 		draw_texture_rect(gun_t, Rect2(gp - gs * 0.5, gs), false, tint)
-	# aim arc preview (guns only, during AIM)
-	if battle.mode == battle.MODE_AIM and def["kind"] == "gun":
-		var a0: float = battle.aim_dir - battle.aim_half
-		var a1: float = battle.aim_dir + battle.aim_half
-		var poly := PackedVector2Array([gp])
-		for i in range(27):
-			var a: float = lerp(a0, a1, i / 26.0)
-			poly.append(gp + Vector2(def["range"], 0).rotated(a))
-		draw_colored_polygon(poly, Color(col.r, col.g, col.b, 0.18))
-		draw_line(gp, gp + Vector2(def["range"], 0).rotated(battle.aim_dir), Color(1, 1, 0.5, 0.9), 4.0)
 
 
 func _draw_strike_preview() -> void:
@@ -77,10 +67,13 @@ func _draw_strike_preview() -> void:
 	var b: Vector2 = battle.strike_to
 	var d: float = a.distance_to(b)
 	if d < 4.0:
+		# anchored but not yet aimed: pulse a target ring where the run starts
+		draw_arc(a, 46.0, 0.0, TAU, 40, Color(1.0, 0.4, 0.2, 0.8), 3.0)
+		draw_circle(a, 6.0, Color(1.0, 0.4, 0.2, 0.9))
 		return
 	var dir: Vector2 = (b - a) / d
 	var perp: Vector2 = dir.orthogonal() * float(battle.STRIKE_RADIUS)
-	var ok: bool = d >= battle.STRIKE_MIN_DRAG
+	var ok: bool = d >= battle.STRIKE_LEN * 0.5
 	var col := Color(1.0, 0.35, 0.2, 0.22) if ok else Color(1, 1, 1, 0.12)
 	var edge := Color(1.0, 0.4, 0.2, 0.8) if ok else Color(1, 1, 1, 0.4)
 	# the bombing corridor
@@ -99,6 +92,6 @@ func _draw_strike_preview() -> void:
 	# an incoming-plane silhouette at the start of the run
 	var shadow: Texture2D = Assets.tex("plane_shadow")
 	if shadow != null:
-		draw_set_transform(a - dir * 60.0, dir.angle() + PI / 2.0, Vector2(1.3, 1.3))
+		draw_set_transform(a - dir * 60.0, dir.angle() + PI, Vector2(1.3, 1.3))
 		draw_texture(shadow, -shadow.get_size() * 0.5, Color(1, 1, 1, 0.8))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

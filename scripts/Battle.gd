@@ -20,7 +20,6 @@ const MAX_WAVES := 9
 # Placement flow states
 const MODE_IDLE := 0
 const MODE_PREVIEW := 1
-const MODE_AIM := 2
 const MODE_STRIKE := 3           # air strike: drag a corridor, planes bomb it
 
 # ---- Air strike ability ----
@@ -29,7 +28,8 @@ const STRIKE_PLANES := 2
 const STRIKE_BOMBS := 5          # bombs per plane
 const STRIKE_DAMAGE := 50.0
 const STRIKE_RADIUS := 80.0
-const STRIKE_MIN_DRAG := 80.0    # shortest corridor the player may drag
+const STRIKE_MIN_DRAG := 24.0    # tiny drag needed just to define a direction
+const STRIKE_LEN := 380.0        # FIXED corridor length — drag only sets direction
 
 # Build-phase timing: generous window before wave 1 and between waves so the
 # player can actually place/aim turrets under no pressure.
@@ -64,9 +64,6 @@ var deploy_left := {}
 var mode: int = MODE_IDLE
 var pending_type := ""
 var ghost_pos := Vector2.ZERO
-var aim_dir := 0.0
-var aim_half := deg_to_rad(60)
-var pending_auto_fire := true
 
 # Air strike drag state (read by BattleWorld for the preview overlay)
 var strike_from := Vector2.ZERO
@@ -97,10 +94,6 @@ var msg_panel: PanelContainer
 var lbl_msg: Label
 var deploy_bar: HBoxContainer
 var confirm_box: HBoxContainer
-var aim_panel: VBoxContainer
-var lbl_arc: Label
-var arc_slider: HSlider
-var auto_check: CheckButton
 var overlay: Control
 var btn_strike: Button
 var upgrade_panel: VBoxContainer
@@ -277,7 +270,7 @@ func _on_enemy_reached_gate(dmg: int) -> void:
 
 # ================= Placement flow =================
 func _select_type(type_id: String) -> void:
-	if finished or mode == MODE_AIM:
+	if finished:
 		return
 	if _deploy_count(type_id) <= 0:
 		_flash("None left to deploy — buy more in the Workshop")
@@ -297,19 +290,6 @@ func _confirm_pressed() -> void:
 		if _dist_to_path(ghost_pos) < 40.0:
 			_flash("Too close to the path")
 			return
-		var def := TurretData.get_def(pending_type)
-		if def["kind"] == "bomb":
-			_place_turret()             # bombers skip aiming
-		else:
-			mode = MODE_AIM
-			aim_dir = 0.0
-			arc_slider.value = 120
-			aim_half = deg_to_rad(60)
-			auto_check.button_pressed = true
-			pending_auto_fire = true
-			_sync_placement_ui()
-			_flash("Drag to aim, slider sets arc width, then Confirm")
-	elif mode == MODE_AIM:
 		_place_turret()
 
 
@@ -323,11 +303,7 @@ func _place_turret() -> void:
 	var t := Turret.new()
 	t.battle = self
 	t.position = ghost_pos
-	if TurretData.get_def(pending_type)["kind"] == "gun":
-		t.aim_angle = aim_dir
-		t.arc_half = aim_half
-		if pending_type == "sniper":
-			t.auto_fire = pending_auto_fire
+	t.aim_angle = (_nearest_path_point(ghost_pos) - ghost_pos).angle()
 	t.setup(pending_type)
 	world.add_child(t)
 	deploy_left[pending_type] = _deploy_count(pending_type) - 1
@@ -387,29 +363,28 @@ func _unhandled_input(event: InputEvent) -> void:
 	if mode == MODE_PREVIEW:
 		if down or drag:
 			ghost_pos = world_pos
-	elif mode == MODE_AIM:
-		if down or drag:
-			aim_dir = (world_pos - ghost_pos).angle()
 	elif mode == MODE_STRIKE:
-		# drag a corridor: down = anchor, drag = stretch, release = planes inbound
+		# fixed-length corridor: touch = anchor, drag = point the run, release = go
 		if down:
 			strike_from = world_pos
 			strike_to = world_pos
 			strike_dragging = true
 		elif drag and strike_dragging:
-			strike_to = world_pos
+			var v := world_pos - strike_from
+			if v.length() >= STRIKE_MIN_DRAG:
+				strike_to = strike_from + v.normalized() * STRIKE_LEN
+			else:
+				strike_to = strike_from
 		elif up and strike_dragging:
 			strike_dragging = false
-			if strike_from.distance_to(strike_to) >= STRIKE_MIN_DRAG:
+			if strike_from.distance_to(strike_to) >= STRIKE_LEN * 0.5:
 				_call_air_strike(strike_from, strike_to)
 			else:
-				_flash("Drag a LONGER line for the bombing run")
+				_flash("Touch the target, then DRAG to point the bombing run")
 	elif mode == MODE_IDLE and down:
 		# tap a turret: tap-fire turrets shoot, and any turret opens the upgrade panel
 		for c in world.get_children():
 			if c is Turret and c.position.distance_to(world_pos) < 44.0:
-				if c.def.get("can_tap", false) and not c.auto_fire:
-					c.tap_fire()
 				_select_turret(c)
 				return
 		_close_upgrade()   # tapped empty ground
@@ -421,7 +396,7 @@ func _strike_pressed() -> void:
 		return
 	mode = MODE_STRIKE
 	strike_dragging = false
-	_flash("DRAG a line — planes will bomb along it!")
+	_flash("Touch the target, then DRAG to aim the bombing run")
 
 
 func _call_air_strike(from_p: Vector2, to_p: Vector2) -> void:
@@ -631,35 +606,6 @@ func _build_ui() -> void:
 	b_cancel.pressed.connect(_cancel_pressed)
 	confirm_box.add_child(b_cancel)
 
-	# aim panel (bottom-center): arc-width slider + sniper auto/tap toggle, AIM only
-	aim_panel = VBoxContainer.new()
-	aim_panel.add_theme_constant_override("separation", 6)
-	aim_panel.anchor_left = 0.5
-	aim_panel.anchor_right = 0.5
-	aim_panel.anchor_top = 1.0
-	aim_panel.anchor_bottom = 1.0
-	aim_panel.offset_left = -180
-	aim_panel.offset_right = 180
-	aim_panel.offset_top = -150
-	aim_panel.offset_bottom = -16
-	ui.add_child(aim_panel)
-	lbl_arc = Label.new()
-	lbl_arc.add_theme_font_size_override("font_size", 24)
-	aim_panel.add_child(lbl_arc)
-	arc_slider = HSlider.new()
-	arc_slider.min_value = 20
-	arc_slider.max_value = 120
-	arc_slider.value = 120
-	arc_slider.step = 5
-	arc_slider.custom_minimum_size = Vector2(360, 40)
-	arc_slider.value_changed.connect(_on_arc_changed)
-	aim_panel.add_child(arc_slider)
-	auto_check = CheckButton.new()
-	auto_check.text = "Auto-fire (off = tap turret)"
-	auto_check.button_pressed = true
-	auto_check.toggled.connect(func(v): pending_auto_fire = v)
-	aim_panel.add_child(auto_check)
-
 	# air strike button (right edge, above the confirm row) with a plane icon
 	btn_strike = Button.new()
 	btn_strike.text = "AIR STRIKE"
@@ -705,16 +651,9 @@ func _build_ui() -> void:
 	_sync_placement_ui()
 
 
-func _on_arc_changed(v: float) -> void:
-	aim_half = deg_to_rad(v * 0.5)
-	if lbl_arc:
-		lbl_arc.text = "Firing arc: %d°" % int(v)
-
 
 func _sync_placement_ui() -> void:
-	confirm_box.visible = mode == MODE_PREVIEW or mode == MODE_AIM
-	aim_panel.visible = mode == MODE_AIM
-	auto_check.visible = mode == MODE_AIM and pending_type == "sniper"
+	confirm_box.visible = mode == MODE_PREVIEW
 	if world:
 		world.queue_redraw()   # refresh/clear the gate+ghost overlay on any transition
 
@@ -866,6 +805,18 @@ func _show_overlay(title: String, sub: String, btn: String, primary_scene: Strin
 func _placement_ok(p: Vector2) -> bool:
 	# valid spot = inside the arena frame AND not on the orc road
 	return PLAY_RECT.has_point(p) and _dist_to_path(p) >= 40.0
+
+
+func _nearest_path_point(p: Vector2) -> Vector2:
+	var best := p + Vector2.RIGHT
+	var best_d := INF
+	for i in range(path_points.size() - 1):
+		var q := Geometry2D.get_closest_point_to_segment(p, path_points[i], path_points[i + 1])
+		var d := p.distance_to(q)
+		if d < best_d:
+			best_d = d
+			best = q
+	return best
 
 
 func _dist_to_path(p: Vector2) -> float:
