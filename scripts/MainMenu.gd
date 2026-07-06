@@ -17,7 +17,7 @@ func _ready() -> void:
 	var back := _Backdrop.new()
 	add_child(back)
 
-	# marching orcs strip (behind the UI)
+	# marching orcs strip (behind the UI) — positioned in _process off real size
 	_orc_layer = Node2D.new()
 	add_child(_orc_layer)
 	for i in range(6):
@@ -25,7 +25,7 @@ func _ready() -> void:
 		s.texture = Assets.tex("orc")
 		s.modulate = Color(0.7, 1.15, 0.6)
 		s.scale = Vector2(2.4, 2.4)
-		s.position = Vector2(-80.0 - i * 220.0, 640.0)
+		s.position = Vector2(-80.0 - i * 220.0, 0.0)
 		_orc_layer.add_child(s)
 		_orcs.append(s)
 
@@ -72,11 +72,13 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	# the horde never stops marching
+	# the horde never stops marching, along the real bottom on any aspect ratio
+	var w := size.x
+	var ground_y := size.y - 88.0
 	for s in _orcs:
 		s.position.x += 60.0 * delta
-		s.position.y = 640.0 - abs(sin(s.position.x * 0.05)) * 5.0
-		if s.position.x > 1380.0:
+		s.position.y = ground_y - abs(sin(s.position.x * 0.05)) * 5.0
+		if s.position.x > w + 100.0:
 			s.position.x = -100.0
 
 
@@ -135,24 +137,32 @@ class _Backdrop:
 		anchor_bottom = 1.0
 		queue_redraw()
 
+	func _process(_d: float) -> void:
+		queue_redraw()   # keep filling the real (post-stretch) rect
+
 	func _draw() -> void:
+		var sz := size                       # actual window size, any aspect
+		var w := sz.x
+		var h := sz.y
+		var ground_y := h - 65.0
 		# horizon glow
 		for i in range(6):
 			var a := 0.05 - i * 0.008
-			draw_rect(Rect2(0, 180 + i * 40, 1280, 40), Color(0.9, 0.8, 0.4, max(a, 0.0)))
-		# rolling hills, three parallax tones
-		_hill(430.0, 90.0, Color(0.10, 0.17, 0.10))
-		_hill(510.0, 70.0, Color(0.12, 0.21, 0.12))
-		_hill(580.0, 50.0, Color(0.14, 0.25, 0.13))
-		# ground strip the orcs march on
-		draw_rect(Rect2(0, 655, 1280, 65), Color(0.16, 0.13, 0.09))
-		draw_rect(Rect2(0, 650, 1280, 8), Color(0.22, 0.18, 0.12))
+			draw_rect(Rect2(0, h * 0.25 + i * 40, w, 40), Color(0.9, 0.8, 0.4, max(a, 0.0)))
+		# rolling hills, three parallax tones (relative to height)
+		_hill(h * 0.60, 90.0, w, h, Color(0.10, 0.17, 0.10))
+		_hill(h * 0.71, 70.0, w, h, Color(0.12, 0.21, 0.12))
+		_hill(h * 0.80, 50.0, w, h, Color(0.14, 0.25, 0.13))
+		# ground strip the orcs march on, pinned to the real bottom
+		draw_rect(Rect2(0, ground_y, w, 65), Color(0.16, 0.13, 0.09))
+		draw_rect(Rect2(0, ground_y - 5, w, 8), Color(0.22, 0.18, 0.12))
 
-	func _hill(base_y: float, amp: float, col: Color) -> void:
+	func _hill(base_y: float, amp: float, w: float, h: float, col: Color) -> void:
 		var pts := PackedVector2Array()
-		pts.append(Vector2(0, 720))
-		for i in range(33):
+		pts.append(Vector2(0, h))
+		var n := int(w / 40.0) + 1
+		for i in range(n + 1):
 			var x := i * 40.0
 			pts.append(Vector2(x, base_y - sin(x * 0.008 + base_y) * amp))
-		pts.append(Vector2(1280, 720))
+		pts.append(Vector2(w, h))
 		draw_colored_polygon(pts, col)

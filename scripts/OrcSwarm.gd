@@ -1,24 +1,24 @@
 class_name OrcSwarm
 extends Node2D
 ## Data-oriented enemy horde. Instead of one Node2D per orc (which caps out in the
-## low hundreds on a phone), ALL orcs live in parallel arrays and render through a
-## handful of MultiMeshInstance2D (one per type) — a single draw call each. This is
-## what lets thousands of orcs flood the path with no lag.
+## low hundreds on a phone), ALL orcs live in parallel arrays and are drawn in ONE
+## canvas pass (this node's _draw) as procedural pixel-orcs. Reliable rendering +
+## full control of the look, and cheap enough for a big flood.
 ##
 ## Stable indices: dead slots are recycled via a free list and a per-slot generation
 ## counter, so bullets/turrets can hold an (index, gen) reference safely.
 ##
 ## Death still fires all the juice: gore.add_hit / add_corpse, blood, damage numbers.
 
-# ---- Enemy types (CC0 Kenney art, styled to match the reference game) ----
-# px = on-screen size; small so hundreds pack into a carpet.
+# ---- Enemy types (custom-drawn, styled to match the reference game) ----
+# r = body radius on screen; small so hundreds pack into a carpet.
 const TYPES := {
-	"orc":      {"tex": "orc",            "px": 24.0, "tint": Color(0.72, 1.12, 0.60), "hp": 1.0, "spd": 1.0,  "armor": 0.0, "coin": 1, "xp": 1, "gate": 3},
-	"slime":    {"tex": "enemy_slime",    "px": 22.0, "tint": Color(0.70, 1.05, 0.65), "hp": 0.7, "spd": 0.95, "armor": 0.0, "coin": 1, "xp": 1, "gate": 2},
-	"runner":   {"tex": "orc",            "px": 20.0, "tint": Color(1.05, 1.05, 0.45), "hp": 0.6, "spd": 1.9,  "armor": 0.0, "coin": 1, "xp": 1, "gate": 3},
-	"skeleton": {"tex": "enemy_skeleton", "px": 24.0, "tint": Color(0.92, 0.95, 1.0),  "hp": 1.2, "spd": 1.2,  "armor": 1.0, "coin": 2, "xp": 1, "gate": 4},
-	"brute":    {"tex": "orc_boss",       "px": 40.0, "tint": Color(0.75, 0.78, 0.98), "hp": 3.4, "spd": 0.55, "armor": 4.0, "coin": 3, "xp": 3, "gate": 8},
-	"boss":     {"tex": "orc_boss",       "px": 96.0, "tint": Color(1.0, 0.55, 0.9),   "hp": 1.0, "spd": 1.0,  "armor": 6.0, "coin": 1, "xp": 1, "gate": 25},
+	"orc":      {"r": 9.0,  "body": Color(0.36, 0.62, 0.24), "hp": 1.0, "spd": 1.0,  "armor": 0.0, "coin": 1, "xp": 1, "gate": 3},
+	"slime":    {"r": 8.0,  "body": Color(0.30, 0.70, 0.34), "hp": 0.7, "spd": 0.95, "armor": 0.0, "coin": 1, "xp": 1, "gate": 2},
+	"runner":   {"r": 7.0,  "body": Color(0.70, 0.66, 0.20), "hp": 0.6, "spd": 1.9,  "armor": 0.0, "coin": 1, "xp": 1, "gate": 3},
+	"skeleton": {"r": 8.5,  "body": Color(0.86, 0.88, 0.82), "hp": 1.2, "spd": 1.2,  "armor": 1.0, "coin": 2, "xp": 1, "gate": 4},
+	"brute":    {"r": 15.0, "body": Color(0.24, 0.46, 0.20), "hp": 3.4, "spd": 0.55, "armor": 4.0, "coin": 3, "xp": 3, "gate": 8},
+	"boss":     {"r": 34.0, "body": Color(0.55, 0.20, 0.52), "hp": 1.0, "spd": 1.0,  "armor": 6.0, "coin": 1, "xp": 1, "gate": 25},
 }
 const TYPE_ORDER := ["orc", "slime", "runner", "skeleton", "brute", "boss"]
 
@@ -52,10 +52,11 @@ var _count := 0                   # alive orcs
 # ---- Spatial grid for O(nearby) target queries ----
 const CELL := 80.0
 var _grid := {}                   # cell key (int) -> Array[int] of alive indices
+var _anim := 0.0                  # global walk-bob clock
 
-# ---- Rendering ----
-var _mmi := {}                    # type name -> MultiMeshInstance2D
-var _mm := {}                     # type name -> MultiMesh
+
+func _ready() -> void:
+	z_index = 5                   # above ground/gore, below turret overlay
 
 
 func setup(p: PackedVector2Array) -> void:
@@ -68,25 +69,6 @@ func setup(p: PackedVector2Array) -> void:
 		_seg_dir.append(dir)
 		_seg_perp.append(dir.orthogonal())
 		_seg_len.append(l)
-	_build_multimeshes()
-
-
-func _build_multimeshes() -> void:
-	for tname in TYPE_ORDER:
-		var d: Dictionary = TYPES[tname]
-		var mesh := QuadMesh.new()
-		mesh.size = Vector2(d["px"], d["px"])
-		var mm := MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_2D
-		mm.use_colors = true
-		mm.mesh = mesh
-		mm.instance_count = 0
-		var mmi := MultiMeshInstance2D.new()
-		mmi.multimesh = mm
-		mmi.texture = Assets.tex(d["tex"])
-		add_child(mmi)
-		_mm[tname] = mm
-		_mmi[tname] = mmi
 
 
 # ---- Spawn ----
@@ -249,29 +231,68 @@ func _process(delta: float) -> void:
 			_grid[key] = [i]
 		else:
 			cell.append(i)
-	_render()
+	_anim += delta
+	queue_redraw()
 
 
-func _render() -> void:
-	# bucket alive orcs by type, then fill each type's MultiMesh in one pass
-	var buckets := {}
-	for tname in TYPE_ORDER:
-		buckets[tname] = []
+func _draw() -> void:
+	# ONE canvas pass draws every orc as a small procedural sprite. Bosses/brutes
+	# last so they read on top. A walk-bob makes the whole carpet ripple.
 	for i in range(_pos.size()):
-		if _alive[i] == 1:
-			buckets[TYPE_ORDER[_type[i]]].append(i)
-	for tname in TYPE_ORDER:
-		var list: Array = buckets[tname]
-		var mm: MultiMesh = _mm[tname]
-		mm.instance_count = list.size()
-		var tint: Color = TYPES[tname]["tint"]
-		var k := 0
-		for i in list:
-			var sx := -1.0 if _flip[i] == 1 else 1.0
-			var xf := Transform2D(0.0, _pos[i])
-			xf.x *= sx
-			mm.set_instance_transform_2d(k, xf)
-			var f: float = _flash[i]
-			var col := tint.lerp(Color(1, 1, 1), clamp(f / 0.12, 0.0, 1.0)) if f > 0.0 else tint
-			mm.set_instance_color(k, col)
-			k += 1
+		if _alive[i] == 0:
+			continue
+		_draw_orc(i)
+
+
+func _draw_orc(i: int) -> void:
+	var tname: String = TYPE_ORDER[_type[i]]
+	var d: Dictionary = TYPES[tname]
+	var r: float = d["r"]
+	var p: Vector2 = _pos[i]
+	var bob := sin(_anim * 9.0 + float(i) * 0.7) * (r * 0.12)
+	var c := p + Vector2(0, bob)
+	var face := -1.0 if _flip[i] == 1 else 1.0
+	var body: Color = d["body"]
+	var f: float = _flash[i]
+	if f > 0.0:
+		body = body.lerp(Color(1, 1, 1), clamp(f / 0.12, 0.0, 1.0))
+	var dark := body.darkened(0.4)
+
+	# shadow on the ground
+	draw_circle(p + Vector2(0, r * 0.55), r * 0.7, Color(0, 0, 0, 0.18))
+
+	if tname == "skeleton":
+		# bony: pale round skull + eye sockets
+		draw_circle(c, r, body)
+		draw_circle(c, r, dark)  # rim
+		draw_circle(c, r * 0.85, body)
+		draw_circle(c + Vector2(-r * 0.32 * face, -r * 0.1), r * 0.16, Color(0.1, 0.1, 0.12))
+		draw_circle(c + Vector2(r * 0.18 * face, -r * 0.1), r * 0.16, Color(0.1, 0.1, 0.12))
+		return
+
+	# orc-like body: rounded torso, darker rim, two eyes, two tusks
+	draw_circle(c, r, dark)                    # outline ring
+	draw_circle(c, r * 0.88, body)             # body
+	# little pointy ears
+	draw_colored_polygon(PackedVector2Array([
+		c + Vector2(-r * 0.9 * face, -r * 0.1), c + Vector2(-r * 1.25 * face, -r * 0.5),
+		c + Vector2(-r * 0.6 * face, -r * 0.55)]), body)
+	draw_colored_polygon(PackedVector2Array([
+		c + Vector2(r * 0.9 * face, -r * 0.1), c + Vector2(r * 1.25 * face, -r * 0.5),
+		c + Vector2(r * 0.6 * face, -r * 0.55)]), body)
+	# eyes
+	var eye := Color(0.95, 0.9, 0.2) if tname != "boss" else Color(1, 0.9, 0.3)
+	draw_circle(c + Vector2(-r * 0.32, -r * 0.12), r * 0.16, Color(0.05, 0.1, 0.05))
+	draw_circle(c + Vector2(r * 0.32, -r * 0.12), r * 0.16, Color(0.05, 0.1, 0.05))
+	draw_circle(c + Vector2(-r * 0.32, -r * 0.12), r * 0.08, eye)
+	draw_circle(c + Vector2(r * 0.32, -r * 0.12), r * 0.08, eye)
+	# tusks
+	draw_colored_polygon(PackedVector2Array([
+		c + Vector2(-r * 0.28, r * 0.35), c + Vector2(-r * 0.16, r * 0.72),
+		c + Vector2(-r * 0.05, r * 0.35)]), Color(0.95, 0.95, 0.85))
+	draw_colored_polygon(PackedVector2Array([
+		c + Vector2(r * 0.28, r * 0.35), c + Vector2(r * 0.16, r * 0.72),
+		c + Vector2(r * 0.05, r * 0.35)]), Color(0.95, 0.95, 0.85))
+	# armor pip for armored/brute types
+	if d["armor"] >= 4.0:
+		draw_arc(c, r * 1.05, -0.9, 0.9, 8, Color(0.7, 0.75, 0.85, 0.9), 2.5)
